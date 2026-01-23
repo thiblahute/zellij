@@ -16,8 +16,14 @@ use axum::{
     response::IntoResponse,
 };
 use futures::StreamExt;
+use std::sync::Arc;
+use tokio::sync::Mutex;
+use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 use zellij_utils::{input::mouse::MouseEvent, ipc::ClientToServerMsg};
+
+const PING_INTERVAL_SECS: u64 = 30;
+const PONG_TIMEOUT_SECS: u64 = 45;
 
 pub async fn ws_handler_control(
     ws: WebSocketUpgrade,
@@ -49,6 +55,40 @@ async fn handle_ws_control(socket: WebSocket, state: AppState) {
         serde_json::to_string(&set_config_msg).unwrap().into(),
     ));
 
+    // Track the time of the last received Pong (shared with the ping task).
+    // Browsers automatically reply to WebSocket protocol-level Pings with Pongs,
+    // even when the page's JS event loop is blocked or the tab is throttled,
+    // so this is a reliable end-to-end liveness signal.
+    let last_pong = Arc::new(Mutex::new(Instant::now()));
+    let ping_cancellation = CancellationToken::new();
+
+    // Spawn the ping task: send a Ping every PING_INTERVAL_SECS, and tear down
+    // the connection if no Pong has been observed within PONG_TIMEOUT_SECS.
+    let ping_tx = control_channel_tx.clone();
+    let ping_last_pong = last_pong.clone();
+    let ping_cancel = ping_cancellation.clone();
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(PING_INTERVAL_SECS));
+        loop {
+            tokio::select! {
+                _ = ping_cancel.cancelled() => {
+                    break;
+                }
+                _ = interval.tick() => {
+                    let elapsed = ping_last_pong.lock().await.elapsed();
+                    if elapsed.as_secs() > PONG_TIMEOUT_SECS {
+                        log::warn!("WebSocket control connection timed out (no Pong received)");
+                        break;
+                    }
+
+                    if ping_tx.send(Message::Ping(Vec::new().into())).is_err() {
+                        break;
+                    }
+                }
+            }
+        }
+    });
+
     let send_message_to_server = |deserialized_msg: WebClientToWebServerControlMessage| {
         let Some(client_connection) = state
             .connection_table
@@ -60,9 +100,9 @@ async fn handle_ws_control(socket: WebSocket, state: AppState) {
             log::error!("Unknown web_client_id: {}", deserialized_msg.web_client_id);
             return;
         };
-        let client_msg = match deserialized_msg.payload {
+        let client_msg = match &deserialized_msg.payload {
             WebClientToWebServerControlMessagePayload::TerminalResize(size) => {
-                ClientToServerMsg::TerminalResize(size)
+                ClientToServerMsg::TerminalResize(*size)
             },
         };
 
@@ -89,6 +129,7 @@ async fn handle_ws_control(socket: WebSocket, state: AppState) {
                                     control_channel_tx.clone(),
                                 );
                         }
+
                         send_message_to_server(deserialized_msg);
                     },
                     Err(e) => {
@@ -96,7 +137,11 @@ async fn handle_ws_control(socket: WebSocket, state: AppState) {
                     },
                 }
             },
+            Message::Pong(_) => {
+                *last_pong.lock().await = Instant::now();
+            },
             Message::Close(_) => {
+                ping_cancellation.cancel();
                 return;
             },
             _ => {
@@ -104,6 +149,8 @@ async fn handle_ws_control(socket: WebSocket, state: AppState) {
             },
         }
     }
+
+    ping_cancellation.cancel();
 }
 
 async fn handle_ws_terminal(
