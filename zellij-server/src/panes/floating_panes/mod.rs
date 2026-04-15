@@ -50,6 +50,7 @@ pub struct FloatingPanes {
     pane_being_moved_with_mouse: Option<(PaneId, Position)>,
     senders: ThreadSenders,
     window_title: Option<String>,
+    fullscreen_is_active: Option<PaneId>,
 }
 
 #[allow(clippy::borrowed_box)]
@@ -86,10 +87,18 @@ impl FloatingPanes {
             pane_being_moved_with_mouse: None,
             senders,
             window_title: None,
+            fullscreen_is_active: None,
         }
     }
     pub fn stack(&self) -> Option<FloatingPanesStack> {
         if self.panes_are_visible() {
+            if let Some(fullscreen_pane_id) = self.fullscreen_is_active {
+                if let Some(pane) = self.panes.get(&fullscreen_pane_id) {
+                    return Some(FloatingPanesStack {
+                        layers: vec![pane.current_geom()],
+                    });
+                }
+            }
             let layers: Vec<PaneGeom> = self
                 .z_indices
                 .iter()
@@ -125,6 +134,9 @@ impl FloatingPanes {
         self.panes.keys()
     }
     pub fn add_pane(&mut self, pane_id: PaneId, pane: Box<dyn Pane>) {
+        if self.fullscreen_is_active.is_some() {
+            self.unset_fullscreen();
+        }
         self.desired_pane_positions
             .insert(pane_id, pane.position_and_size());
         self.panes.insert(pane_id, pane);
@@ -147,6 +159,9 @@ impl FloatingPanes {
         pane_id: PaneId,
         mut with_pane: Box<dyn Pane>,
     ) -> Result<Box<dyn Pane>> {
+        if self.fullscreen_is_active == Some(pane_id) {
+            self.unset_fullscreen();
+        }
         let err_context = || format!("failed to replace pane {pane_id:?} with pane");
 
         let with_pane_id = with_pane.pid();
@@ -184,6 +199,9 @@ impl FloatingPanes {
         removed_pane
     }
     pub fn remove_pane(&mut self, pane_id: PaneId) -> Option<Box<dyn Pane>> {
+        if self.fullscreen_is_active == Some(pane_id) {
+            self.fullscreen_is_active = None;
+        }
         self.z_indices.retain(|p_id| *p_id != pane_id);
         self.desired_pane_positions.remove(&pane_id);
         self.panes.remove(&pane_id)
@@ -237,6 +255,9 @@ impl FloatingPanes {
     }
     pub fn toggle_show_panes(&mut self, should_show_floating_panes: bool) {
         self.window_title = None; // clear so that it will be re-rendered once we toggle back
+        if !should_show_floating_panes && self.fullscreen_is_active.is_some() {
+            self.unset_fullscreen();
+        }
         self.show_panes = should_show_floating_panes;
         if should_show_floating_panes {
             self.active_panes.focus_all_panes(&mut self.panes);
@@ -249,6 +270,56 @@ impl FloatingPanes {
     }
     pub fn panes_contain(&self, pane_id: &PaneId) -> bool {
         self.panes.contains_key(pane_id)
+    }
+    pub fn fullscreen_is_active(&self) -> bool {
+        self.fullscreen_is_active.is_some()
+    }
+    pub fn fullscreen_pane_id(&self) -> Option<PaneId> {
+        self.fullscreen_is_active
+    }
+    pub fn toggle_active_pane_fullscreen(&mut self, client_id: ClientId) {
+        if let Some(active_pane_id) = self.active_panes.get(&client_id).copied() {
+            self.toggle_pane_fullscreen(active_pane_id);
+        }
+    }
+    pub fn toggle_pane_fullscreen(&mut self, pane_id: PaneId) {
+        if self.fullscreen_is_active.is_some() {
+            self.unset_fullscreen();
+        } else {
+            if !self.panes.contains_key(&pane_id) {
+                return;
+            }
+            let viewport = { *self.viewport.borrow() };
+            let full_screen_geom = PaneGeom {
+                x: viewport.x,
+                y: viewport.y,
+                rows: Dimension::fixed(viewport.rows),
+                cols: Dimension::fixed(viewport.cols),
+                stacked: None,
+                is_pinned: false,
+                logical_position: None,
+            };
+            if let Some(pane) = self.panes.get_mut(&pane_id) {
+                pane.set_geom_override(full_screen_geom);
+            }
+            self.fullscreen_is_active = Some(pane_id);
+            let connected_client_list: Vec<ClientId> =
+                { self.connected_clients.borrow().iter().copied().collect() };
+            for client_id in connected_client_list {
+                self.focus_pane(pane_id, client_id);
+            }
+            self.set_force_render();
+            let _ = self.set_pane_frames();
+        }
+    }
+    pub fn unset_fullscreen(&mut self) {
+        if let Some(fullscreen_pane_id) = self.fullscreen_is_active.take() {
+            if let Some(pane) = self.panes.get_mut(&fullscreen_pane_id) {
+                pane.reset_size_and_position_override();
+            }
+            self.set_force_render();
+            let _ = self.set_pane_frames();
+        }
     }
     pub fn find_room_for_new_pane(&mut self) -> Option<PaneGeom> {
         let display_area = *self.display_area.borrow();
@@ -374,8 +445,16 @@ impl FloatingPanes {
         } else {
             Default::default()
         };
+        let fullscreen_pane_id = self.fullscreen_is_active;
         let mut floating_panes: Vec<_> = if self.panes_are_visible() {
-            self.panes.iter_mut().collect()
+            if let Some(fullscreen_pane_id) = fullscreen_pane_id {
+                self.panes
+                    .iter_mut()
+                    .filter(|(id, _)| **id == fullscreen_pane_id)
+                    .collect()
+            } else {
+                self.panes.iter_mut().collect()
+            }
         } else if self.has_pinned_panes() {
             self.panes
                 .iter_mut()
@@ -471,6 +550,21 @@ impl FloatingPanes {
             viewport,
         );
         floating_pane_grid.resize(new_screen_size).non_fatal();
+        if let Some(fullscreen_pane_id) = self.fullscreen_is_active {
+            let viewport = *self.viewport.borrow();
+            if let Some(pane) = self.panes.get_mut(&fullscreen_pane_id) {
+                pane.set_geom_override(PaneGeom {
+                    x: viewport.x,
+                    y: viewport.y,
+                    rows: Dimension::fixed(viewport.rows),
+                    cols: Dimension::fixed(viewport.cols),
+                    stacked: None,
+                    is_pinned: false,
+                    logical_position: None,
+                });
+                let _ = resize_pty!(pane, os_api, self.senders, self.character_cell_size);
+            }
+        }
         self.set_force_render();
     }
 
@@ -500,6 +594,9 @@ impl FloatingPanes {
         pane_id: PaneId,
     ) -> Result<bool> {
         // true => successfully resized
+        if self.fullscreen_is_active.is_some() {
+            return Ok(false);
+        }
         let err_context = || format!("Failed to resize pane with id: {:?}", pane_id);
         let display_area = *self.display_area.borrow();
         let viewport = *self.viewport.borrow();
@@ -838,6 +935,11 @@ impl FloatingPanes {
             log::error!("Cannot focus pane {:?} as it is not selectable!", pane_id);
             return;
         }
+        if let Some(fullscreen_pane_id) = self.fullscreen_is_active {
+            if fullscreen_pane_id != pane_id {
+                self.unset_fullscreen();
+            }
+        }
         self.active_panes
             .insert(client_id, pane_id, &mut self.panes);
         self.focus_pane_for_all_clients(pane_id);
@@ -1007,6 +1109,9 @@ impl FloatingPanes {
     }
     pub fn move_pane_with_mouse(&mut self, position: Position, search_selectable: bool) -> bool {
         // true => handled, false => not handled (eg. no pane at this position)
+        if self.fullscreen_is_active.is_some() {
+            return false;
+        }
         let show_panes = self.show_panes;
         if self.pane_being_moved_with_mouse.is_some() {
             if self.move_pane_to_position(&position) {
@@ -1045,6 +1150,7 @@ impl FloatingPanes {
         self.panes.len()
     }
     pub fn drain(&mut self) -> BTreeMap<PaneId, Box<dyn Pane>> {
+        self.fullscreen_is_active = None;
         self.z_indices.clear();
         self.desired_pane_positions.clear();
         match self.panes.iter().next().map(|(pid, _p)| *pid) {
@@ -1134,7 +1240,7 @@ impl FloatingPanes {
             pane_info_for_pane.is_floating = true;
             pane_info_for_pane.is_suppressed = false;
             pane_info_for_pane.is_focused = is_focused;
-            pane_info_for_pane.is_fullscreen = false;
+            pane_info_for_pane.is_fullscreen = self.fullscreen_is_active == Some(*pane_id);
             pane_infos.push(pane_info_for_pane);
         }
         pane_infos

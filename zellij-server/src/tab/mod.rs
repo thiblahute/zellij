@@ -879,6 +879,9 @@ impl Tab {
         }
     }
     fn relayout_floating_panes(&mut self, search_backwards: bool) -> Result<()> {
+        if self.floating_panes.fullscreen_is_active() {
+            self.floating_panes.unset_fullscreen();
+        }
         if let Some(layout_candidate) = self
             .swap_layouts
             .swap_floating_panes(&self.floating_panes, search_backwards)
@@ -2616,6 +2619,7 @@ impl Tab {
     }
     pub fn toggle_active_pane_fullscreen(&mut self, client_id: ClientId) {
         if self.floating_panes.panes_are_visible() {
+            self.floating_panes.toggle_active_pane_fullscreen(client_id);
             return;
         }
         self.tiled_panes.toggle_active_pane_fullscreen(client_id);
@@ -2623,52 +2627,54 @@ impl Tab {
     pub fn toggle_pane_fullscreen(&mut self, pane_id: PaneId) {
         if self.tiled_panes.panes_contain(&pane_id) {
             self.tiled_panes.toggle_pane_fullscreen(pane_id);
+        } else if self.floating_panes.panes_contain(&pane_id) {
+            self.floating_panes.toggle_pane_fullscreen(pane_id);
         } else {
-            log::error!("No tiled pane with id: {:?} found", pane_id);
+            log::error!("No pane with id: {:?} found", pane_id);
         }
     }
     pub fn is_fullscreen_active(&self) -> bool {
-        self.tiled_panes.fullscreen_is_active()
+        self.tiled_panes.fullscreen_is_active() || self.floating_panes.fullscreen_is_active()
     }
     pub fn are_floating_panes_visible(&self) -> bool {
         self.floating_panes.panes_are_visible()
     }
     pub fn focus_pane_left_fullscreen(&mut self, client_id: ClientId) -> bool {
-        if !self.is_fullscreen_active() {
+        if !self.tiled_panes.fullscreen_is_active() {
             return false;
         }
 
         return self.tiled_panes.focus_pane_left_fullscreen(client_id);
     }
     pub fn focus_pane_right_fullscreen(&mut self, client_id: ClientId) -> bool {
-        if !self.is_fullscreen_active() {
+        if !self.tiled_panes.fullscreen_is_active() {
             return false;
         }
 
         return self.tiled_panes.focus_pane_right_fullscreen(client_id);
     }
     pub fn focus_pane_up_fullscreen(&mut self, client_id: ClientId) {
-        if !self.is_fullscreen_active() {
+        if !self.tiled_panes.fullscreen_is_active() {
             return;
         }
 
         self.tiled_panes.focus_pane_up_fullscreen(client_id);
     }
     pub fn focus_pane_down_fullscreen(&mut self, client_id: ClientId) {
-        if !self.is_fullscreen_active() {
+        if !self.tiled_panes.fullscreen_is_active() {
             return;
         }
 
         self.tiled_panes.focus_pane_down_fullscreen(client_id);
     }
     pub fn switch_next_pane_fullscreen(&mut self, client_id: ClientId) {
-        if !self.is_fullscreen_active() {
+        if !self.tiled_panes.fullscreen_is_active() {
             return;
         }
         self.tiled_panes.switch_next_pane_fullscreen(client_id);
     }
     pub fn switch_prev_pane_fullscreen(&mut self, client_id: ClientId) {
-        if !self.is_fullscreen_active() {
+        if !self.tiled_panes.fullscreen_is_active() {
             return;
         }
         self.tiled_panes.switch_prev_pane_fullscreen(client_id);
@@ -2904,13 +2910,18 @@ impl Tab {
             .resize_pty_all_panes(&mut self.os_api)
             .with_context(err_context)?;
         self.tiled_panes.resize(new_screen_size);
-        if self.auto_layout && !self.swap_layouts.is_floating_damaged() {
+        if self.auto_layout
+            && !self.swap_layouts.is_floating_damaged()
+            && !self.floating_panes.fullscreen_is_active()
+        {
             // we do this only for floating panes, because the constraint system takes care of the
             // tiled panes
             self.swap_layouts.set_is_floating_damaged();
             let _ = self.relayout_floating_panes(false);
         }
-        if self.auto_layout && !self.swap_layouts.is_tiled_damaged() && !self.is_fullscreen_active()
+        if self.auto_layout
+            && !self.swap_layouts.is_tiled_damaged()
+            && !self.tiled_panes.fullscreen_is_active()
         {
             self.swap_layouts.set_is_tiled_damaged();
             let _ = self.relayout_tiled_panes(false);
