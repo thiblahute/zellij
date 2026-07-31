@@ -3016,6 +3016,7 @@ pub enum PipeSource {
     Cli(String), // String is the pipe_id of the CLI pipe (used for blocking/unblocking)
     Plugin(u32), // u32 is the lugin id
     Keybind,     // TODO: consider including the actual keybind here?
+    Web(String), // String is the web_client_id of the originating web-client frontend
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -3471,6 +3472,14 @@ pub enum PluginCommand {
     UnblockCliPipeInput(String),   // String => pipe name
     BlockCliPipeInput(String),     // String => pipe name
     CliPipeOutput(String, String), // String => pipe name, String => output
+    // Post a message to this plugin's own web frontend (String => payload). The
+    // server stamps it with the plugin's web_plugin_id and delivers it only to the
+    // bound web client — a companion can only ever talk to its own frontend.
+    WebPostMessage(String),
+    // Register this plugin's browser frontend (String => JS module source), carried
+    // inside the wasm. The server serves it at /assets/webext/<web_plugin_id>.js for
+    // the browser to import — the plugin is a self-contained artifact.
+    SetWebFrontend(String),
     MessageToPlugin(MessageToPlugin),
     DisconnectOtherClients,
     KillSessions(Vec<String>), // one or more session names

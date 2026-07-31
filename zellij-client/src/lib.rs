@@ -220,6 +220,14 @@ impl From<ServerToClientMsg> for ClientInstruction {
             ServerToClientMsg::PaneRenderUpdate { .. } => ClientInstruction::UnblockInputThread,
             ServerToClientMsg::SubscribedPaneClosed { .. } => ClientInstruction::UnblockInputThread,
             ServerToClientMsg::SetSoftKeyboard { .. } => ClientInstruction::UnblockInputThread,
+            // Web-only: web companions are enabled only for web clients, so a
+            // regular interactive client has nothing to do with these.
+            ServerToClientMsg::WebPluginEnabled { .. } => ClientInstruction::UnblockInputThread,
+            ServerToClientMsg::WebPluginMessage { .. } => ClientInstruction::UnblockInputThread,
+            ServerToClientMsg::WebPluginFrontend { .. } => ClientInstruction::UnblockInputThread,
+            ServerToClientMsg::WebPluginPermissionRequest { .. } => {
+                ClientInstruction::UnblockInputThread
+            },
         }
     }
 }
@@ -750,6 +758,18 @@ pub async fn run_remote_client_terminal_loop(
                             }
                             Ok(WebServerToWebClientControlMessage::SetSoftKeyboard{ .. }) => {
                                 // no-op
+                            }
+                            Ok(WebServerToWebClientControlMessage::WebPluginEnabled{ .. }) => {
+                                // no-op (handled by the browser frontend, not the nested client)
+                            }
+                            Ok(WebServerToWebClientControlMessage::WebPluginMessage{ .. }) => {
+                                // no-op (handled by the browser frontend, not the nested client)
+                            }
+                            Ok(WebServerToWebClientControlMessage::WebPluginFrontend{ .. }) => {
+                                // no-op (handled by the browser frontend, not the nested client)
+                            }
+                            Ok(WebServerToWebClientControlMessage::WebPluginPermissionRequest{ .. }) => {
+                                // no-op (handled by the browser frontend, not the nested client)
                             }
                             Err(e) => {
                                 log::error!("Failed to deserialize control message: {}", e);

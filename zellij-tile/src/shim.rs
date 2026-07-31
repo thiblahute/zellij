@@ -1658,6 +1658,26 @@ pub fn cli_pipe_output(pipe_name: &str, output: &str) {
     unsafe { host_run_plugin_command() };
 }
 
+/// Post a message to this plugin's own web frontend. The server stamps it with this
+/// plugin's `web_plugin_id` and delivers it only to the bound web client — a companion
+/// can only ever talk to its own frontend, never another's.
+pub fn web_post_message(payload: &str) {
+    let plugin_command = PluginCommand::WebPostMessage(payload.to_owned());
+    let protobuf_plugin_command: ProtobufPluginCommand = plugin_command.try_into().unwrap();
+    object_to_stdout(&protobuf_plugin_command.encode_to_vec());
+    unsafe { host_run_plugin_command() };
+}
+
+/// Register this plugin's browser frontend (a JS module, typically embedded via
+/// include_str!). The server serves it at /assets/webext/<web_plugin_id>.js for the
+/// browser to import, so the plugin is a single self-contained artifact.
+pub fn set_web_frontend(frontend: &str) {
+    let plugin_command = PluginCommand::SetWebFrontend(frontend.to_owned());
+    let protobuf_plugin_command: ProtobufPluginCommand = plugin_command.try_into().unwrap();
+    object_to_stdout(&protobuf_plugin_command.encode_to_vec());
+    unsafe { host_run_plugin_command() };
+}
+
 /// Send a message to a plugin, it will be launched if it is not already running
 pub fn pipe_message_to_plugin(message_to_plugin: MessageToPlugin) {
     let plugin_command = PluginCommand::MessageToPlugin(message_to_plugin);

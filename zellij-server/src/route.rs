@@ -2819,6 +2819,50 @@ pub(crate) fn route_thread_main(
                                 },
                             }
                         },
+                        ClientToServerMsg::WebPipeToPlugin {
+                            ref web_plugin_id,
+                            ref name,
+                            ref payload,
+                        } => {
+                            // Route a web frontend's pipe to *its* companion plugin. The
+                            // frontend carries the web_plugin_id it was given at enable
+                            // time; we also carry the authenticated client_id so the
+                            // server can validate the token belongs to this connection
+                            // and tag provenance. The plugin's permission gate is the
+                            // authority for whatever it then does.
+                            if let Some(senders) = senders.as_ref() {
+                                let _ = senders.send_to_plugin(PluginInstruction::WebPipe {
+                                    client_id,
+                                    web_plugin_id: web_plugin_id.clone(),
+                                    name: name.clone(),
+                                    payload: payload.clone(),
+                                });
+                            }
+                        },
+                        ClientToServerMsg::RequestWebPlugins => {
+                            // Control channel is up; re-announce this client's companions.
+                            if let Some(senders) = senders.as_ref() {
+                                let _ = senders.send_to_plugin(
+                                    PluginInstruction::RequestWebPlugins(client_id),
+                                );
+                            }
+                        },
+                        ClientToServerMsg::WebPluginPermissionResponse {
+                            ref web_plugin_id,
+                            granted,
+                        } => {
+                            // The user answered a companion's permission prompt; carry the
+                            // authenticated client_id so the grant is scoped to this client.
+                            if let Some(senders) = senders.as_ref() {
+                                let _ = senders.send_to_plugin(
+                                    PluginInstruction::WebPluginPermissionResponse {
+                                        client_id,
+                                        web_plugin_id: web_plugin_id.clone(),
+                                        granted,
+                                    },
+                                );
+                            }
+                        },
                     }
                     Ok(should_break)
                 };

@@ -373,6 +373,7 @@ fn create_plugin_thread(
                 InputMode::Normal,
                 Keybinds::default(),
                 Default::default(),
+                vec![], // web_extensions
                 initiating_client_id,
             )
             .expect("TEST")
@@ -461,6 +462,7 @@ fn create_plugin_thread_with_server_receiver(
                 InputMode::Normal,
                 Keybinds::default(),
                 Default::default(),
+                vec![], // web_extensions
                 initiating_client_id,
             )
             .expect("TEST");
@@ -557,6 +559,7 @@ fn create_plugin_thread_with_pty_receiver(
                 InputMode::Normal,
                 Keybinds::default(),
                 Default::default(),
+                vec![], // web_extensions
                 initiating_client_id,
             )
             .expect("TEST")
@@ -646,6 +649,7 @@ fn create_plugin_thread_with_background_jobs_receiver(
                 InputMode::Normal,
                 Keybinds::default(),
                 Default::default(),
+                vec![], // web_extensions
                 initiating_client_id,
             )
             .expect("TEST")

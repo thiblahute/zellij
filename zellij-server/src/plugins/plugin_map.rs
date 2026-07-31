@@ -279,6 +279,10 @@ pub struct PluginEnv {
     pub wasi_ctx: WasiCtx,
     pub tab_index: Option<usize>,
     pub client_id: ClientId,
+    // A headless web-extension companion (loaded per web client). Its permission
+    // requests are routed to the browser rather than shown in a pane dialog, so
+    // request_permission dispatches them differently.
+    pub is_web_companion: bool,
     #[allow(dead_code)]
     pub plugin_own_data_dir: PathBuf,
     pub plugin_own_cache_dir: PathBuf,

@@ -16,6 +16,9 @@ pub struct PipeMessage {
     pub args: ::prost::alloc::vec::Vec<Arg>,
     #[prost(bool, tag="7")]
     pub is_private: bool,
+    /// web_client_id of the originating web-client frontend, when source == Web
+    #[prost(string, optional, tag="8")]
+    pub web_source_id: ::core::option::Option<::prost::alloc::string::String>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -31,6 +34,7 @@ pub enum PipeSource {
     Cli = 0,
     Plugin = 1,
     Keybind = 2,
+    Web = 3,
 }
 impl PipeSource {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -42,6 +46,7 @@ impl PipeSource {
             PipeSource::Cli => "Cli",
             PipeSource::Plugin => "Plugin",
             PipeSource::Keybind => "Keybind",
+            PipeSource::Web => "Web",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -50,6 +55,7 @@ impl PipeSource {
             "Cli" => Some(Self::Cli),
             "Plugin" => Some(Self::Plugin),
             "Keybind" => Some(Self::Keybind),
+            "Web" => Some(Self::Web),
             _ => None,
         }
     }

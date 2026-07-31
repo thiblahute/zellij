@@ -142,18 +142,46 @@ pub async fn create_new_client(
     }))
 }
 
-pub async fn get_static_asset(AxumPath(path): AxumPath<String>) -> impl IntoResponse {
+pub async fn get_static_asset(
+    State(state): State<AppState>,
+    AxumPath(path): AxumPath<String>,
+) -> impl IntoResponse {
     let path = path.trim_start_matches('/');
+
+    // Web-extension frontends are provided at runtime by their companion plugins
+    // (carried inside the wasm), not shipped in the embedded ASSETS_DIR. Serving
+    // them here at /assets/webext/<web_plugin_id>.js keeps plugins self-contained;
+    // the "../web-extensions.js" import in each resolves to the core hub.
+    if let Some(rest) = path.strip_prefix("webext/") {
+        let web_plugin_id = rest.strip_suffix(".js").unwrap_or(rest);
+        let js = state
+            .web_ext_assets
+            .lock()
+            .unwrap()
+            .get(web_plugin_id)
+            .cloned();
+        return match js {
+            Some(js) => {
+                ([(header::CONTENT_TYPE, "text/javascript")], js.into_bytes()).into_response()
+            },
+            None => (StatusCode::NOT_FOUND, "web extension not found").into_response(),
+        };
+    }
 
     match ASSETS_DIR.get_file(path) {
         None => (
             [(header::CONTENT_TYPE, "text/html")],
             "Not Found".as_bytes(),
-        ),
+        )
+            .into_response(),
         Some(file) => {
             let ext = file.path().extension().and_then(|ext| ext.to_str());
             let mime_type = get_mime_type(ext);
-            ([(header::CONTENT_TYPE, mime_type)], file.contents())
+            (
+                [(header::CONTENT_TYPE, mime_type)],
+                file.contents().to_vec(),
+            )
+                .into_response()
         },
     }
 }

@@ -29,6 +29,7 @@ pub fn zellij_server_listener(
     config_file_path: Option<PathBuf>,
     web_client_id: String,
     session_manager: Arc<dyn SessionManager>,
+    web_ext_assets: Arc<Mutex<std::collections::HashMap<String, String>>>,
     attachment_complete_tx: Option<tokio::sync::oneshot::Sender<()>>,
 ) {
     let _server_listener_thread = std::thread::Builder::new()
@@ -181,6 +182,43 @@ pub fn zellij_server_listener(
                             Some(ServerToClientMsg::SetSoftKeyboard{on}) => {
                                 client_connection_bus.send_control(
                                     WebServerToWebClientControlMessage::SetSoftKeyboard { on },
+                                );
+                            },
+                            Some(ServerToClientMsg::WebPluginEnabled{extension, web_plugin_id}) => {
+                                client_connection_bus.send_control(
+                                    WebServerToWebClientControlMessage::WebPluginEnabled {
+                                        extension,
+                                        web_plugin_id,
+                                    },
+                                );
+                            },
+                            Some(ServerToClientMsg::WebPluginMessage{web_plugin_id, payload}) => {
+                                client_connection_bus.send_control(
+                                    WebServerToWebClientControlMessage::WebPluginMessage {
+                                        web_plugin_id,
+                                        payload,
+                                    },
+                                );
+                            },
+                            Some(ServerToClientMsg::WebPluginFrontend{web_plugin_id, frontend}) => {
+                                // Cache the companion's frontend so it can be served at
+                                // /assets/webext/<id>.js, then tell the browser to import it.
+                                web_ext_assets
+                                    .lock()
+                                    .unwrap()
+                                    .insert(web_plugin_id.clone(), frontend);
+                                client_connection_bus.send_control(
+                                    WebServerToWebClientControlMessage::WebPluginFrontend {
+                                        web_plugin_id,
+                                    },
+                                );
+                            },
+                            Some(ServerToClientMsg::WebPluginPermissionRequest{web_plugin_id, permissions}) => {
+                                client_connection_bus.send_control(
+                                    WebServerToWebClientControlMessage::WebPluginPermissionRequest {
+                                        web_plugin_id,
+                                        permissions,
+                                    },
                                 );
                             },
                             Some(ServerToClientMsg::Log{lines}) => {

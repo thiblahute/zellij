@@ -2,6 +2,15 @@ import { handleReconnection, handleDisconnected, markConnectionEstablished } fro
 import { getBaseUrl, getWebSocketBaseUrl } from "./utils.js";
 import { setSoftKeyboard } from "./input.js";
 import { applyFontSize } from "./terminal.js";
+import {
+    initWebExtensions,
+    onWebPluginEnabled,
+    onWebPluginFrontend,
+    onWebPluginMessage,
+    onWebPluginPermissionRequest,
+} from "./web-extensions.js";
+// No extension frontends are bundled here: each companion plugin carries its own,
+// served at /assets/webext/<id>.js and imported dynamically when enabled.
 
 const NATURAL_MIN_TOTAL_ROWS = 25;
 const MOBILE_LEGIBLE_FLOOR_PX = 16;
@@ -186,10 +195,27 @@ export function initWebSockets(
 }
 
 function startWsControl(wsControl, term, fitAddon, ownWebClientId, userConfig) {
+    // Web-extension hub: holds the web_plugin_id(s) the server injects and
+    // sends/receives pipes for each registered frontend over this control socket.
+    initWebExtensions(
+        () => wsControl,
+        () => ownWebClientId
+    );
+
     wsControl.onopen = function (event) {
         const fitDimensions = fitAddon.proposeDimensions();
         const { rows, cols } = fitDimensions;
+        // The size update is the first control message and registers our control
+        // channel server-side; only after that can the server push to us. Ask for
+        // our web companions right after, so their enablement isn't lost to the
+        // race between enable-time delivery and this socket coming up.
         sendSizeUpdate(wsControl, ownWebClientId, term, rows, cols);
+        wsControl.send(
+            JSON.stringify({
+                web_client_id: ownWebClientId,
+                payload: { type: "RequestWebPlugins" },
+            })
+        );
     };
 
     wsControl.onmessage = function (event) {
@@ -289,6 +315,14 @@ function startWsControl(wsControl, term, fitAddon, ownWebClientId, userConfig) {
         } else if (msg.type === "SetSoftKeyboard") {
             const { on } = msg;
             setSoftKeyboard(term, !!on);
+        } else if (msg.type === "WebPluginEnabled") {
+            onWebPluginEnabled(msg.extension, msg.web_plugin_id);
+        } else if (msg.type === "WebPluginFrontend") {
+            onWebPluginFrontend(msg.web_plugin_id);
+        } else if (msg.type === "WebPluginPermissionRequest") {
+            onWebPluginPermissionRequest(msg.web_plugin_id, msg.permissions);
+        } else if (msg.type === "WebPluginMessage") {
+            onWebPluginMessage(msg.web_plugin_id, msg.payload);
         }
     };
 

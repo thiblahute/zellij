@@ -23,7 +23,31 @@ message ServerToClientMsg {
     ForwardQueryToHostMsg forward_query_to_host = 16;
     SetSoftKeyboardMsg set_soft_keyboard = 17;
     EmitNestedSessionFrameMsg emit_nested_session_frame = 18;
+    WebPluginEnabledMsg web_plugin_enabled = 19;
+    WebPluginMessageMsg web_plugin_message = 20;
+    WebPluginFrontendMsg web_plugin_frontend = 21;
+    WebPluginPermissionRequestMsg web_plugin_permission_request = 22;
   }
+}
+
+message WebPluginEnabledMsg {
+  string extension = 1;
+  string web_plugin_id = 2;
+}
+
+message WebPluginMessageMsg {
+  string web_plugin_id = 1;
+  string payload = 2;
+}
+
+message WebPluginFrontendMsg {
+  string web_plugin_id = 1;
+  string frontend = 2;
+}
+
+message WebPluginPermissionRequestMsg {
+  string web_plugin_id = 1;
+  repeated string permissions = 2;
 }
 
 message RenderMsg {

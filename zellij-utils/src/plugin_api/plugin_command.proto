@@ -220,6 +220,8 @@ enum CommandName {
   NewPane = 226;
   ToggleFocusNoUiFullscreen = 227;
   FocusHostSession = 228;
+  WebPostMessage = 229;
+  SetWebFrontend = 230;
 }
 
 message PluginCommand {
@@ -381,6 +383,8 @@ message PluginCommand {
     NewTiledPaneInTabPayload new_tiled_pane_in_tab_payload = 169;
     SetPaneFrameStylePayload set_pane_frame_style_payload = 170;
     ToggleFloatingPanesPayload toggle_floating_panes_payload = 171;
+    WebPostMessagePayload web_post_message_payload = 172;
+    SetWebFrontendPayload set_web_frontend_payload = 173;
   }
 }
 
@@ -680,6 +684,14 @@ message KillSessionsPayload {
 message CliPipeOutputPayload {
   string pipe_name = 1;
   string output = 2;
+}
+
+message WebPostMessagePayload {
+  string payload = 1;
+}
+
+message SetWebFrontendPayload {
+  string frontend = 1;
 }
 
 message MessageToPluginPayload {

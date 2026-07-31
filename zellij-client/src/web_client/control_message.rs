@@ -15,8 +15,31 @@ pub enum WebClientToWebServerControlMessagePayload {
     TerminalResizeRendering(Size),
     TerminalSizeSettled(Size),
     TerminalMetrics(TerminalMetricsPayload),
-    SoftKeyboardVisibilityChanged { visible: bool },
-    NestedSessionFrameFromHost { payload_bytes: Vec<u8> },
+    SoftKeyboardVisibilityChanged {
+        visible: bool,
+    },
+    NestedSessionFrameFromHost {
+        payload_bytes: Vec<u8>,
+    },
+    // A web-client frontend piping a message to its companion plugin. The frontend
+    // carries the `web_plugin_id` that was injected when the companion was enabled;
+    // the server validates it against the authenticated connection, so a frontend can
+    // only ever reach its own companion — it cannot address, load, or broadcast to
+    // any other plugin.
+    PipeToPlugin {
+        web_plugin_id: String,
+        name: String,
+        payload: Option<String>,
+    },
+    // Sent once the control channel is up: "which web companions do I have?".
+    // The server re-announces them via WebPluginEnabled. Race-proofs enable-time
+    // delivery and re-syncs after a reconnect.
+    RequestWebPlugins,
+    // The user's answer to a companion's permission prompt.
+    WebPluginPermissionResponse {
+        web_plugin_id: String,
+        granted: bool,
+    },
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -32,10 +55,43 @@ pub struct TerminalMetricsPayload {
 pub enum WebServerToWebClientControlMessage {
     SetConfig(SetConfigPayload),
     QueryTerminalSize,
-    Log { lines: Vec<String> },
-    LogError { lines: Vec<String> },
-    SwitchedSession { new_session_name: String },
-    SetSoftKeyboard { on: bool },
+    Log {
+        lines: Vec<String>,
+    },
+    LogError {
+        lines: Vec<String>,
+    },
+    SwitchedSession {
+        new_session_name: String,
+    },
+    SetSoftKeyboard {
+        on: bool,
+    },
+    // A web companion plugin was enabled for this client. The server minted an
+    // unguessable `web_plugin_id` bound to (this connection, that plugin); the
+    // frontend stores it and echoes it on every call to/from that companion.
+    WebPluginEnabled {
+        extension: String,
+        web_plugin_id: String,
+    },
+    // A web companion plugin posted a message to its frontend. The `web_plugin_id`
+    // tells the frontend which companion it came from (the server stamped it from
+    // the authenticated binding, so a plugin can only ever reach its own frontend).
+    WebPluginMessage {
+        web_plugin_id: String,
+        payload: String,
+    },
+    // A web companion's frontend is now served at /assets/webext/<web_plugin_id>.js.
+    // The frontend carries no JS here — the browser imports it from that URL.
+    WebPluginFrontend {
+        web_plugin_id: String,
+    },
+    // A web companion is requesting permissions; the browser prompts the user and
+    // answers with WebPluginPermissionResponse.
+    WebPluginPermissionRequest {
+        web_plugin_id: String,
+        permissions: Vec<String>,
+    },
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

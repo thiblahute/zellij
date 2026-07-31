@@ -20,7 +20,10 @@
         <script src="assets/addon-web-links.js"></script>
         <script src="assets/addon-webgl.js"></script>
         <meta charset="UTF-8" />
-        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <!-- interactive-widget=resizes-content: when the soft keyboard shows,
+             shrink the LAYOUT viewport (not just the visual one) so a
+             bottom:0 element (the extra-keys row) anchors above the keyboard. -->
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, interactive-widget=resizes-content" />
         <title>Zellij Web Client</title>
     </head>
     <body data-authenticated="IS_AUTHENTICATED">

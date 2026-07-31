@@ -142,6 +142,21 @@ pub enum ServerInstruction {
     ForwardQueryToHost(u32, Vec<u8>),
     KeyPassthroughChanged(ClientId, PaneId, PaneId, bool, Option<Direction>, bool),
     EmitNestedSessionFrameToClient(ClientId, Vec<u8>),
+    /// A web companion plugin was enabled for a (web) client; forward the
+    /// server-minted web_plugin_id to that client's browser. (ClientId,
+    /// extension, web_plugin_id)
+    WebPluginEnabled(ClientId, String, String),
+    /// A web companion plugin posted a message to its own frontend; forward it to
+    /// that client's browser, stamped with the web_plugin_id. (ClientId,
+    /// web_plugin_id, payload)
+    WebPluginMessage(ClientId, String, String),
+    /// A web companion registered its browser frontend; forward the JS to the web
+    /// server, which caches and serves it at /assets/webext/<web_plugin_id>.js.
+    /// (ClientId, web_plugin_id, frontend_js)
+    WebPluginFrontend(ClientId, String, String),
+    /// A web companion is asking the user to grant permissions; forward to that
+    /// client's browser to prompt. (ClientId, web_plugin_id, permission_names)
+    WebPluginPermissionRequest(ClientId, String, Vec<String>),
 }
 
 impl From<&ServerInstruction> for ServerContext {
@@ -194,6 +209,12 @@ impl From<&ServerInstruction> for ServerContext {
             ServerInstruction::KeyPassthroughChanged(..) => ServerContext::KeyPassthroughChanged,
             ServerInstruction::EmitNestedSessionFrameToClient(..) => {
                 ServerContext::EmitNestedSessionFrameToClient
+            },
+            ServerInstruction::WebPluginEnabled(..) => ServerContext::WebPluginEnabled,
+            ServerInstruction::WebPluginMessage(..) => ServerContext::WebPluginMessage,
+            ServerInstruction::WebPluginFrontend(..) => ServerContext::WebPluginFrontend,
+            ServerInstruction::WebPluginPermissionRequest(..) => {
+                ServerContext::WebPluginPermissionRequest
             },
         }
     }
@@ -1148,6 +1169,17 @@ pub fn start_server_impl(
                     .senders
                     .send_to_plugin(PluginInstruction::AddClient(client_id))
                     .unwrap();
+                if is_web_client {
+                    // A web client connected: enable its web companion plugin(s) and
+                    // inject the minted web_plugin_id token(s) into the browser.
+                    let _ = session_data
+                        .read()
+                        .unwrap()
+                        .as_ref()
+                        .unwrap()
+                        .senders
+                        .send_to_plugin(PluginInstruction::EnableWebCompanions(client_id));
+                }
 
                 if should_enter_mobile {
                     session_data
@@ -1229,6 +1261,13 @@ pub fn start_server_impl(
                     .senders
                     .send_to_plugin(PluginInstruction::AddClient(client_id))
                     .unwrap();
+                if is_web_client {
+                    // A web client attached: enable its web companion plugin(s) and
+                    // inject the minted web_plugin_id token(s) into the browser.
+                    let _ = session_data
+                        .senders
+                        .send_to_plugin(PluginInstruction::EnableWebCompanions(client_id));
+                }
                 let default_mode = config.options.default_mode.unwrap_or_default();
                 // ModeUpdate broadcast is handled by the screen thread via
                 // change_mode() -> update_input_modes()
@@ -2033,6 +2072,58 @@ pub fn start_server_impl(
                     session_data
                 );
             },
+            ServerInstruction::WebPluginEnabled(client_id, extension, web_plugin_id) => {
+                send_to_client!(
+                    client_id,
+                    os_input,
+                    ServerToClientMsg::WebPluginEnabled {
+                        extension,
+                        web_plugin_id,
+                    },
+                    session_state,
+                    session_data
+                );
+            },
+            ServerInstruction::WebPluginMessage(client_id, web_plugin_id, payload) => {
+                send_to_client!(
+                    client_id,
+                    os_input,
+                    ServerToClientMsg::WebPluginMessage {
+                        web_plugin_id,
+                        payload,
+                    },
+                    session_state,
+                    session_data
+                );
+            },
+            ServerInstruction::WebPluginFrontend(client_id, web_plugin_id, frontend) => {
+                send_to_client!(
+                    client_id,
+                    os_input,
+                    ServerToClientMsg::WebPluginFrontend {
+                        web_plugin_id,
+                        frontend,
+                    },
+                    session_state,
+                    session_data
+                );
+            },
+            ServerInstruction::WebPluginPermissionRequest(
+                client_id,
+                web_plugin_id,
+                permissions,
+            ) => {
+                send_to_client!(
+                    client_id,
+                    os_input,
+                    ServerToClientMsg::WebPluginPermissionRequest {
+                        web_plugin_id,
+                        permissions,
+                    },
+                    session_state,
+                    session_data
+                );
+            },
         }
     }
 
@@ -2194,6 +2285,7 @@ fn init_session(
                 .clone()
                 .or_else(|| default_layout_dir());
             let background_plugins = config.background_plugins.clone();
+            let web_extensions = config.web_client.extensions.clone();
             let session_env_vars = session_env_vars.clone();
             move || {
                 plugin_thread_main(
@@ -2212,6 +2304,7 @@ fn init_session(
                     default_mode,
                     default_keybinds,
                     background_plugins,
+                    web_extensions,
                     client_id,
                 )
                 .fatal()

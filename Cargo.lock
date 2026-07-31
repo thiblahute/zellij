@@ -4349,6 +4349,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "web-extra-keys"
+version = "0.1.0"
+dependencies = [
+ "zellij-tile",
+]
+
+[[package]]
 name = "wepoll-ffi"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"

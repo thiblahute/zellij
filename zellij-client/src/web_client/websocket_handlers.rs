@@ -102,6 +102,25 @@ async fn handle_ws_control(
             WebClientToWebServerControlMessagePayload::NestedSessionFrameFromHost {
                 payload_bytes,
             } => ClientToServerMsg::NestedSessionFrameFromHost { payload_bytes },
+            WebClientToWebServerControlMessagePayload::PipeToPlugin {
+                web_plugin_id,
+                name,
+                payload,
+            } => ClientToServerMsg::WebPipeToPlugin {
+                web_plugin_id,
+                name,
+                payload,
+            },
+            WebClientToWebServerControlMessagePayload::RequestWebPlugins => {
+                ClientToServerMsg::RequestWebPlugins
+            },
+            WebClientToWebServerControlMessagePayload::WebPluginPermissionResponse {
+                web_plugin_id,
+                granted,
+            } => ClientToServerMsg::WebPluginPermissionResponse {
+                web_plugin_id,
+                granted,
+            },
         };
 
         let _ = client_connection.send_to_server(client_msg);
@@ -212,6 +231,7 @@ async fn handle_ws_terminal(
         Some(state.config_file_path.clone()),
         web_client_id.clone(),
         state.session_manager.clone(),
+        state.web_ext_assets.clone(),
         Some(attachment_complete_tx),
     );
 

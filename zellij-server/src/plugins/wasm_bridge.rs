@@ -20,6 +20,7 @@ use std::{
 };
 use tokio::sync::mpsc::Sender;
 use url::Url;
+use uuid::Uuid;
 use wasmi::{Engine, Module};
 use zellij_utils::consts::{ZELLIJ_CACHE_DIR, ZELLIJ_SESSION_CACHE_DIR, ZELLIJ_TMP_DIR};
 use zellij_utils::data::{
@@ -101,6 +102,9 @@ pub struct LoadingContext {
     pub plugin_own_cache_dir: PathBuf,
     pub plugin_config: PluginConfig,
     pub tab_index: Option<usize>,
+    // Set true only for headless web-extension companions (see PluginEnv). Defaults
+    // to false; the web-companion load path flips it on after construction.
+    pub is_web_companion: bool,
     pub path_to_default_shell: PathBuf,
     pub session_env_vars: std::collections::BTreeMap<String, String>,
     pub default_shell: Option<TerminalAction>,
@@ -156,6 +160,7 @@ impl LoadingContext {
             plugin_own_cache_dir,
             plugin_config,
             tab_index,
+            is_web_companion: false,
             plugin_dir: wasm_bridge.plugin_dir.clone(),
             size,
         }
@@ -202,6 +207,26 @@ pub struct WasmBridge {
     downloader: Downloader,
     previous_pane_render_report: Option<PaneRenderReport>,
     pub last_session_save_time: Arc<Mutex<Option<u64>>>, // milliseconds since UNIX epoch
+    // Web-extension identity. When a web companion plugin is enabled for a client
+    // we mint an unguessable token bound to (client_id, plugin_id, extension). Every
+    // web pipe carries this token and the server validates it against the
+    // *authenticated* connection, so a frontend can only ever reach its own
+    // companion — it cannot address, load, or broadcast to any other plugin, nor to
+    // another client's. The extension name is kept so we can re-announce a client's
+    // companions when its control channel (re)connects.
+    web_plugin_ids: HashMap<String, WebPluginBinding>,
+}
+
+#[derive(Clone)]
+struct WebPluginBinding {
+    client_id: ClientId,
+    plugin_id: PluginId,
+    extension: String,
+    // The companion's browser frontend (JS module), registered via set_web_frontend.
+    frontend: Option<String>,
+    // Permissions the companion has requested and is waiting on the user to grant
+    // in the browser. Held here until the browser answers, then granted (or dropped).
+    pending_permissions: Vec<PermissionType>,
 }
 
 impl WasmBridge {
@@ -265,6 +290,7 @@ impl WasmBridge {
             downloader,
             previous_pane_render_report: None,
             last_session_save_time: Arc::new(Mutex::new(None)),
+            web_plugin_ids: HashMap::new(),
         }
     }
     pub fn load_plugin(
@@ -275,6 +301,7 @@ impl WasmBridge {
         cwd: Option<PathBuf>,
         skip_cache: bool,
         client_id: Option<ClientId>,
+        is_web_companion: bool,
     ) -> Result<(PluginId, ClientId)> {
         let _err_context = move || format!("failed to load plugin");
 
@@ -351,6 +378,7 @@ impl WasmBridge {
                     tab_index,
                     size,
                 );
+                loading_context.is_web_companion = is_web_companion;
 
                 if needs_download {
                     let downloader = self.downloader.clone();
@@ -1004,6 +1032,119 @@ impl WasmBridge {
                     None
                 }
             })
+    }
+    /// Mint (or reuse) the web-plugin id binding a companion plugin to a client's
+    /// authenticated connection. The returned token is unguessable and is injected
+    /// into the web frontend when the companion is enabled; the frontend echoes it
+    /// on every subsequent call. Idempotent per (client_id, plugin_id).
+    pub fn register_web_plugin(
+        &mut self,
+        client_id: ClientId,
+        plugin_id: PluginId,
+        extension: String,
+    ) -> String {
+        if let Some(existing) = self.web_plugin_id_for(client_id, plugin_id) {
+            return existing;
+        }
+        let token = Uuid::new_v4().to_string();
+        self.web_plugin_ids.insert(
+            token.clone(),
+            WebPluginBinding {
+                client_id,
+                plugin_id,
+                extension,
+                frontend: None,
+                pending_permissions: Vec::new(),
+            },
+        );
+        token
+    }
+
+    /// Record the permissions a web companion is asking the user to grant (the
+    /// browser will prompt and answer). Keyed by the authenticated (client_id,
+    /// plugin_id) binding.
+    pub fn set_web_plugin_pending_permissions(
+        &mut self,
+        client_id: ClientId,
+        plugin_id: PluginId,
+        permissions: Vec<PermissionType>,
+    ) {
+        if let Some(b) = self
+            .web_plugin_ids
+            .values_mut()
+            .find(|b| b.client_id == client_id && b.plugin_id == plugin_id)
+        {
+            b.pending_permissions = permissions;
+        }
+    }
+
+    /// Resolve a browser permission answer: validate the token belongs to the
+    /// authenticated client, take the pending request, and return the plugin to
+    /// grant and the exact permissions it asked for. A frontend can therefore only
+    /// answer for its own companion, and only grants what was actually requested.
+    pub fn take_web_plugin_pending_permissions(
+        &mut self,
+        token: &str,
+        client_id: ClientId,
+    ) -> Option<(PluginId, Vec<PermissionType>)> {
+        let b = self.web_plugin_ids.get_mut(token)?;
+        if b.client_id != client_id {
+            return None;
+        }
+        Some((b.plugin_id, std::mem::take(&mut b.pending_permissions)))
+    }
+
+    /// Record a companion's browser frontend (JS), keyed by its (client_id,
+    /// plugin_id) binding, so it can be (re)served to the bound web client.
+    pub fn set_web_plugin_frontend(
+        &mut self,
+        client_id: ClientId,
+        plugin_id: PluginId,
+        frontend: String,
+    ) {
+        if let Some(b) = self
+            .web_plugin_ids
+            .values_mut()
+            .find(|b| b.client_id == client_id && b.plugin_id == plugin_id)
+        {
+            b.frontend = Some(frontend);
+        }
+    }
+
+    /// Resolve the target plugin for an inbound web pipe. The token is *validated*:
+    /// it must be a known web-plugin id whose binding belongs to the authenticated
+    /// `client_id`. This is the authorization check — a forged or cross-client token
+    /// resolves to None, so a frontend can only ever reach its own companion.
+    pub fn web_plugin_target(&self, token: &str, client_id: ClientId) -> Option<PluginId> {
+        match self.web_plugin_ids.get(token) {
+            Some(b) if b.client_id == client_id => Some(b.plugin_id),
+            _ => None,
+        }
+    }
+
+    /// Reverse lookup used for outbound frames (plugin → browser): given an
+    /// authenticated binding, find the web-plugin id to stamp so the frontend can
+    /// route the frame to the right companion.
+    pub fn web_plugin_id_for(&self, client_id: ClientId, plugin_id: PluginId) -> Option<String> {
+        self.web_plugin_ids
+            .iter()
+            .find(|(_, b)| b.client_id == client_id && b.plugin_id == plugin_id)
+            .map(|(token, _)| token.clone())
+    }
+
+    /// All (extension, web_plugin_id, frontend) companions registered for a client.
+    /// Used to (re)announce them when the client's control channel connects — the
+    /// delivery at enable time can race the control socket coming up, and a reconnect
+    /// needs the frontend re-served.
+    pub fn web_plugins_for_client(
+        &self,
+        client_id: ClientId,
+    ) -> Vec<(String, String, Option<String>)> {
+        self.web_plugin_ids
+            .iter()
+            .filter(|(_, b)| b.client_id == client_id)
+            .map(|(token, b)| (b.extension.clone(), token.clone(), b.frontend.clone()))
+            .collect()
     }
     pub fn change_plugin_host_dir(
         &mut self,
@@ -1941,6 +2082,7 @@ impl WasmBridge {
                         cwd.clone(),
                         skip_cache,
                         cli_client_id,
+                        false,
                     ) {
                         Ok((plugin_id, client_id)) => {
                             let start_suppressed = false;

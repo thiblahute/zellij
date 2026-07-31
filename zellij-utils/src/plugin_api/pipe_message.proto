@@ -10,12 +10,15 @@ message PipeMessage {
     optional string payload = 5;
     repeated Arg args = 6;
     bool is_private = 7;
+    // web_client_id of the originating web-client frontend, when source == Web
+    optional string web_source_id = 8;
 }
 
 enum PipeSource {
   Cli = 0;
   Plugin = 1;
   Keybind = 2;
+  Web = 3;
 }
 
 message Arg {

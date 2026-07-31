@@ -12,6 +12,16 @@
        resize events fire. */
     --dynamic-vh: 100vh;
     --dynamic-vw: 100vw;
+
+    /* Shared UI theme for the web extensions' HTML chrome (tab bar, extra-keys
+       row). Extensions render their own DOM but pull these so they match. */
+    --zj-bg: #0e0e12;
+    --zj-fg: #d8d8de;
+    --zj-surface: color-mix(in srgb, var(--zj-bg) 95%, var(--zj-fg) 5%);
+    --zj-surface-hover: color-mix(in srgb, var(--zj-bg) 88%, var(--zj-fg) 12%);
+    --zj-surface-active: color-mix(in srgb, var(--zj-bg) 80%, var(--zj-fg) 20%);
+    --zj-text-dim: color-mix(in srgb, var(--zj-fg) 55%, var(--zj-bg) 45%);
+    --zj-ui-font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
 
 @supports (height: 100dvh) {
@@ -31,7 +41,9 @@ body {
 }
 
 #terminal {
-    height: var(--dynamic-vh, 100vh);
+    /* subtract the floating extra-keys row's reserved height (0 when hidden),
+       so the terminal shrinks above it instead of being covered. */
+    height: calc(var(--dynamic-vh, 100vh) - var(--zj-extra-keys-height, 0px));
     width: var(--dynamic-vw, 100vw);
     margin: 0;
     overflow: hidden;

@@ -165,6 +165,11 @@ pub struct AppState {
     pub session_manager: Arc<dyn SessionManager>,
     pub client_os_api_factory: Arc<dyn ClientOsApiFactory>,
     pub is_https: bool,
+    // Web-extension frontends registered by companion plugins, keyed by
+    // web_plugin_id, served at /assets/webext/<web_plugin_id>.js. The companion
+    // carries its own frontend inside the wasm; the core web client stores it here
+    // at runtime rather than shipping it as a static asset.
+    pub web_ext_assets: Arc<Mutex<std::collections::HashMap<String, String>>>,
 }
 
 #[derive(Serialize)]

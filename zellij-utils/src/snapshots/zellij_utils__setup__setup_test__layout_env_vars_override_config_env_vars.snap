@@ -6260,5 +6260,6 @@ Config {
         mac_option_is_meta: true,
         base_url: None,
         font_size: None,
+        extensions: [],
     },
 }

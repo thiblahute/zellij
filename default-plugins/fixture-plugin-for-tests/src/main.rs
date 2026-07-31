@@ -978,6 +978,7 @@ impl ZellijPlugin for State {
             PipeSource::Cli(id) => id.clone(),
             PipeSource::Plugin(id) => format!("{}", id),
             PipeSource::Keybind => format!("keybind"),
+            PipeSource::Web(_) => format!("web"),
         };
         let name = pipe_message.name;
         let payload = pipe_message.payload;

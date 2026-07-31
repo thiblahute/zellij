@@ -447,6 +447,8 @@ fn host_run_plugin_command(mut caller: Caller<'_, PluginEnv>) {
                     PluginCommand::CliPipeOutput(pipe_name, output) => {
                         cli_pipe_output(env, pipe_name, output)?
                     },
+                    PluginCommand::WebPostMessage(payload) => web_post_message(env, payload)?,
+                    PluginCommand::SetWebFrontend(frontend) => set_web_frontend(env, frontend)?,
                     PluginCommand::MessageToPlugin(message) => message_to_plugin(env, message)?,
                     PluginCommand::DisconnectOtherClients => disconnect_other_clients(env),
                     PluginCommand::KillSessions(session_list) => kill_sessions(session_list),
@@ -841,6 +843,32 @@ fn cli_pipe_output(env: &PluginEnv, pipe_name: String, output: String) -> Result
         .context("failed to send pipe output")
 }
 
+fn web_post_message(env: &PluginEnv, payload: String) -> Result<()> {
+    // Hand the payload to the plugin thread, which owns the web_plugin_id registry
+    // and can stamp this with *this* plugin's id (derived from its authenticated
+    // client_id + plugin_id) before delivering it to the bound web frontend. The
+    // plugin cannot name any other target.
+    env.senders
+        .send_to_plugin(PluginInstruction::WebPluginMessageOut {
+            client_id: env.client_id,
+            plugin_id: env.plugin_id,
+            payload,
+        })
+        .context("failed to post web message")
+}
+
+fn set_web_frontend(env: &PluginEnv, frontend: String) -> Result<()> {
+    // Register this plugin's browser frontend. Routed through the plugin thread so
+    // it can be tied to this plugin's web_plugin_id and served to the bound client.
+    env.senders
+        .send_to_plugin(PluginInstruction::WebSetFrontend {
+            client_id: env.client_id,
+            plugin_id: env.plugin_id,
+            frontend,
+        })
+        .context("failed to set web frontend")
+}
+
 fn message_to_plugin(env: &PluginEnv, mut message_to_plugin: MessageToPlugin) -> Result<()> {
     if message_to_plugin.plugin_url.as_ref().map(|s| s.as_str()) == Some("zellij:OWN_URL") {
         message_to_plugin.plugin_url = Some(env.plugin.location.display());
@@ -940,11 +968,27 @@ fn request_permission(env: &PluginEnv, permissions: Vec<PermissionType>) -> Resu
             plugin_id: env.plugin_id,
         });
 
-    env.senders
-        .send_to_screen(ScreenInstruction::RequestPluginPermissions(
-            env.plugin_id,
-            PluginPermission::new(env.plugin.location.to_string(), permissions),
-        ))
+    // A headless web companion has no pane for the usual dialog, so route its
+    // request through the plugin thread, which forwards it to the browser. Every
+    // other plugin gets the pane permission dialog straight from the screen, with
+    // the same dispatch (and timing) as before web companions existed — routing it
+    // through the plugin thread instead would delay the dialog and race the pane's
+    // sizing.
+    if env.is_web_companion {
+        env.senders
+            .send_to_plugin(PluginInstruction::RoutePermissionRequest {
+                plugin_id: env.plugin_id,
+                client_id: env.client_id,
+                location: env.plugin.location.to_string(),
+                permissions,
+            })
+    } else {
+        env.senders
+            .send_to_screen(ScreenInstruction::RequestPluginPermissions(
+                env.plugin_id,
+                PluginPermission::new(env.plugin.location.to_string(), permissions),
+            ))
+    }
 }
 
 fn get_plugin_ids(env: &PluginEnv) {

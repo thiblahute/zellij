@@ -1,0 +1,9 @@
+[package]
+name = "web-extra-keys"
+version = "0.1.0"
+authors = ["Thibault Saunier <tsaunier@igalia.com>"]
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+zellij-tile = { path = "../../zellij-tile" }

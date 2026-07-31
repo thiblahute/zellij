@@ -3039,7 +3039,7 @@ impl NestedSessionHandling {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ClientToServerMsg {
-    #[prost(oneof="client_to_server_msg::Message", tags="1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22")]
+    #[prost(oneof="client_to_server_msg::Message", tags="1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25")]
     pub message: ::core::option::Option<client_to_server_msg::Message>,
 }
 /// Nested message and enum types in `ClientToServerMsg`.
@@ -3091,7 +3091,35 @@ pub mod client_to_server_msg {
         SoftKeyboardVisibilityChanged(super::SoftKeyboardVisibilityChangedMsg),
         #[prost(message, tag="22")]
         NestedSessionFrameFromHost(super::NestedSessionFrameFromHostMsg),
+        #[prost(message, tag="23")]
+        WebPipeToPlugin(super::WebPipeToPluginMsg),
+        #[prost(message, tag="24")]
+        RequestWebPlugins(super::RequestWebPluginsMsg),
+        #[prost(message, tag="25")]
+        WebPluginPermissionResponse(super::WebPluginPermissionResponseMsg),
     }
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct WebPipeToPluginMsg {
+    #[prost(string, tag="1")]
+    pub web_plugin_id: ::prost::alloc::string::String,
+    #[prost(string, tag="2")]
+    pub name: ::prost::alloc::string::String,
+    #[prost(string, optional, tag="3")]
+    pub payload: ::core::option::Option<::prost::alloc::string::String>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct RequestWebPluginsMsg {
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct WebPluginPermissionResponseMsg {
+    #[prost(string, tag="1")]
+    pub web_plugin_id: ::prost::alloc::string::String,
+    #[prost(bool, tag="2")]
+    pub granted: bool,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -3308,7 +3336,7 @@ impl HostTerminalThemeIndication {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ServerToClientMsg {
-    #[prost(oneof="server_to_client_msg::Message", tags="1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18")]
+    #[prost(oneof="server_to_client_msg::Message", tags="1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22")]
     pub message: ::core::option::Option<server_to_client_msg::Message>,
 }
 /// Nested message and enum types in `ServerToClientMsg`.
@@ -3352,7 +3380,47 @@ pub mod server_to_client_msg {
         SetSoftKeyboard(super::SetSoftKeyboardMsg),
         #[prost(message, tag="18")]
         EmitNestedSessionFrame(super::EmitNestedSessionFrameMsg),
+        #[prost(message, tag="19")]
+        WebPluginEnabled(super::WebPluginEnabledMsg),
+        #[prost(message, tag="20")]
+        WebPluginMessage(super::WebPluginMessageMsg),
+        #[prost(message, tag="21")]
+        WebPluginFrontend(super::WebPluginFrontendMsg),
+        #[prost(message, tag="22")]
+        WebPluginPermissionRequest(super::WebPluginPermissionRequestMsg),
     }
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct WebPluginEnabledMsg {
+    #[prost(string, tag="1")]
+    pub extension: ::prost::alloc::string::String,
+    #[prost(string, tag="2")]
+    pub web_plugin_id: ::prost::alloc::string::String,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct WebPluginMessageMsg {
+    #[prost(string, tag="1")]
+    pub web_plugin_id: ::prost::alloc::string::String,
+    #[prost(string, tag="2")]
+    pub payload: ::prost::alloc::string::String,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct WebPluginFrontendMsg {
+    #[prost(string, tag="1")]
+    pub web_plugin_id: ::prost::alloc::string::String,
+    #[prost(string, tag="2")]
+    pub frontend: ::prost::alloc::string::String,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct WebPluginPermissionRequestMsg {
+    #[prost(string, tag="1")]
+    pub web_plugin_id: ::prost::alloc::string::String,
+    #[prost(string, repeated, tag="2")]
+    pub permissions: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

@@ -27,7 +27,24 @@ message ClientToServerMsg {
     HostTerminalThemeChangedMsg host_terminal_theme_changed = 20;
     SoftKeyboardVisibilityChangedMsg soft_keyboard_visibility_changed = 21;
     NestedSessionFrameFromHostMsg nested_session_frame_from_host = 22;
+    WebPipeToPluginMsg web_pipe_to_plugin = 23;
+    RequestWebPluginsMsg request_web_plugins = 24;
+    WebPluginPermissionResponseMsg web_plugin_permission_response = 25;
   }
+}
+
+message WebPipeToPluginMsg {
+  string web_plugin_id = 1;
+  string name = 2;
+  optional string payload = 3;
+}
+
+message RequestWebPluginsMsg {
+}
+
+message WebPluginPermissionResponseMsg {
+  string web_plugin_id = 1;
+  bool granted = 2;
 }
 
 message DetachSessionMsg {

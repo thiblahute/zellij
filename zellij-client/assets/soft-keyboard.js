@@ -125,6 +125,20 @@ export function installSoftKeyboardCapture(term, sendFunction) {
         }
         lastCh = ch;
         lastChAt = now;
+        // A Termux-style extra-keys row can register sticky Ctrl/Alt here; it
+        // transforms the just-typed character (e.g. Ctrl + "f" -> 0x06) or
+        // returns null when a browser shortcut (Ctrl+k, Alt+s, ...) consumed
+        // it — in which case nothing is sent to the terminal. Backspace
+        // (\x7f) passes through untouched.
+        if (ch !== "\x7f" && typeof window.__zjApplyStickyModifiers === "function") {
+            const transformed = window.__zjApplyStickyModifiers(ch);
+            if (transformed === null) {
+                return; // consumed by a browser shortcut
+            }
+            if (typeof transformed === "string") {
+                ch = transformed;
+            }
+        }
         state.sendFn(ch);
     };
 
@@ -209,10 +223,24 @@ export function installSoftKeyboardCapture(term, sendFunction) {
         }
     });
 
+    // Gestures inside the HTML tab chrome (sidebar, extra-keys row, palette,
+    // toggle) must NOT re-summon the keyboard — scrolling the tab list would
+    // otherwise keep the keyboard up forever.
+    const isChromeGesture = (event) => {
+        const t = event && event.target;
+        return !!(
+            t &&
+            t.closest &&
+            t.closest(
+                "#tab-sidebar, #extra-keys-row, #tab-palette, #tab-sidebar-toggle"
+            )
+        );
+    };
+
     // Mobile browsers honor programmatic focus() only inside a user gesture, so
     // re-focus the capture on every gesture to keep the OS keyboard summoned.
-    const ensureCaptureFocused = () => {
-        if (!window.__zjSoftKbdEnabled) {
+    const ensureCaptureFocused = (event) => {
+        if (!window.__zjSoftKbdEnabled || isChromeGesture(event)) {
             return;
         }
         if (state.isFocused) {

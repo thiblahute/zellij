@@ -32,7 +32,7 @@ use zellij_utils::{
     data::{
         ClientInfo, CommandOrPlugin, Event, EventType, FloatingPaneCoordinates, InputMode,
         LayoutInfo, LayoutWithError, MessageToPlugin, PermissionStatus, PermissionType,
-        PipeMessage, PipeSource, WebServerStatus,
+        PipeMessage, PipeSource, PluginPermission, WebServerStatus,
     },
     errors::{prelude::*, ContextType, PluginContext},
     input::{
@@ -161,6 +161,57 @@ pub enum PluginInstruction {
         skip_cache: bool,
         cli_client_id: ClientId,
     },
+    // A pipe message from a web-client frontend (PipeSource::Web). The frontend
+    // carries the web_plugin_id token it was given when its companion was enabled;
+    // we also carry the authenticated client_id so the server can validate the
+    // token belongs to this connection and resolve the bound plugin. The target
+    // plugin — and its permission gate — is the sole authority for what happens next.
+    WebPipe {
+        client_id: ClientId,
+        web_plugin_id: String,
+        name: String,
+        payload: Option<String>,
+    },
+    // A web client connected: enable its configured web companion plugin(s),
+    // minting a web_plugin_id for each and injecting it into the browser.
+    EnableWebCompanions(ClientId),
+    // A web client's control channel is up and asks which companions it has. We
+    // re-announce the already-registered ones (WebPluginEnabled). This closes the
+    // race where the enable-time announcement is sent before the control socket
+    // is ready, and also re-syncs the frontend after a reconnect.
+    RequestWebPlugins(ClientId),
+    // A web companion plugin posted a message to its own frontend. We look up the
+    // web_plugin_id bound to (client_id, plugin_id) and forward it to the browser.
+    // The plugin named no target — it can only reach its own frontend.
+    WebPluginMessageOut {
+        client_id: ClientId,
+        plugin_id: PluginId,
+        payload: String,
+    },
+    // A web companion registered its browser frontend (JS module source). We store
+    // it against the plugin's web_plugin_id and deliver it to the web server, which
+    // serves it at /assets/webext/<web_plugin_id>.js.
+    WebSetFrontend {
+        client_id: ClientId,
+        plugin_id: PluginId,
+        frontend: String,
+    },
+    // A plugin called request_permission(). We route it here (rather than straight
+    // to the screen) so we can send a web companion's request to its browser instead
+    // of a pane dialog it doesn't have; non-web plugins still get the pane dialog.
+    RoutePermissionRequest {
+        plugin_id: PluginId,
+        client_id: ClientId,
+        location: String,
+        permissions: Vec<PermissionType>,
+    },
+    // The browser answered a web companion's permission prompt. Grant (or deny) the
+    // pending request via the normal PermissionRequestResult path.
+    WebPluginPermissionResponse {
+        client_id: ClientId,
+        web_plugin_id: String,
+        granted: bool,
+    },
     KeybindPipe {
         name: String,
         payload: Option<String>,
@@ -260,6 +311,17 @@ impl From<&PluginInstruction> for PluginContext {
             PluginInstruction::ListClientsMetadata(..) => PluginContext::ListClientsMetadata,
             PluginInstruction::LogLayoutToHd(..) => PluginContext::LogLayoutToHd,
             PluginInstruction::CliPipe { .. } => PluginContext::CliPipe,
+            PluginInstruction::WebPipe { .. } => PluginContext::WebPipe,
+            PluginInstruction::EnableWebCompanions(..) => PluginContext::EnableWebCompanions,
+            PluginInstruction::RequestWebPlugins(..) => PluginContext::RequestWebPlugins,
+            PluginInstruction::WebPluginMessageOut { .. } => PluginContext::WebPluginMessageOut,
+            PluginInstruction::WebSetFrontend { .. } => PluginContext::WebSetFrontend,
+            PluginInstruction::RoutePermissionRequest { .. } => {
+                PluginContext::RoutePermissionRequest
+            },
+            PluginInstruction::WebPluginPermissionResponse { .. } => {
+                PluginContext::WebPluginPermissionResponse
+            },
             PluginInstruction::CachePluginEvents { .. } => PluginContext::CachePluginEvents,
             PluginInstruction::MessageFromPlugin { .. } => PluginContext::MessageFromPlugin,
             PluginInstruction::UnblockCliPipes { .. } => PluginContext::UnblockCliPipes,
@@ -308,6 +370,9 @@ pub(crate) fn plugin_thread_main(
     default_mode: InputMode,
     default_keybinds: Keybinds,
     background_plugins: HashSet<RunPluginOrAlias>,
+    // web extensions (config.web_client.extensions): headless companion plugins
+    // enabled per web-client connection (see PluginInstruction::EnableWebCompanions).
+    web_extensions: Vec<RunPluginOrAlias>,
     // the client id that started the session,
     // we need it here because the thread's own list of connected clients might not yet be updated
     // on session start when we need to load the background plugins, and so we must have an
@@ -345,6 +410,7 @@ pub(crate) fn plugin_thread_main(
             &bus,
             &plugin_aliases,
             initiating_client_id,
+            false,
         );
     }
 
@@ -386,6 +452,7 @@ pub(crate) fn plugin_thread_main(
                     cwd.clone(),
                     skip_cache,
                     Some(client_id),
+                    false,
                 ) {
                     Ok((plugin_id, client_id)) => {
                         drop(bus.senders.send_to_screen(ScreenInstruction::AddPlugin(
@@ -422,6 +489,7 @@ pub(crate) fn plugin_thread_main(
                     &bus,
                     &plugin_aliases,
                     client_id,
+                    false,
                 );
             },
             PluginInstruction::Update(updates) => {
@@ -464,6 +532,7 @@ pub(crate) fn plugin_thread_main(
                                         None,
                                         skip_cache,
                                         None,
+                                        false,
                                     ) {
                                         Ok((plugin_id, _client_id)) => {
                                             let should_be_open_in_place = false;
@@ -602,6 +671,7 @@ pub(crate) fn plugin_thread_main(
                             cwd,
                             skip_cache,
                             Some(client_id),
+                            false,
                         ) {
                             Ok((plugin_id, _client_id)) => {
                                 plugin_ids
@@ -694,6 +764,7 @@ pub(crate) fn plugin_thread_main(
                                 cwd,
                                 skip_cache,
                                 Some(client_id),
+                                false,
                             ) {
                                 Ok((plugin_id, _client_id)) => {
                                     plugin_ids
@@ -990,6 +1061,265 @@ pub(crate) fn plugin_thread_main(
                     },
                 }
                 wasm_bridge.pipe_messages(pipe_messages, shutdown_send.clone(), None)?;
+            },
+            PluginInstruction::WebPipe {
+                client_id,
+                web_plugin_id,
+                name,
+                payload,
+            } => {
+                // A web-client frontend piped a message to its companion plugin.
+                // The web_plugin_id is *validated* against the authenticated
+                // client_id: it must be a token we minted for this connection. A
+                // forged or cross-client token resolves to nothing, so a frontend
+                // can only ever reach its own companion — it cannot address, load,
+                // or broadcast to any other plugin. Route it as PipeSource::Web so
+                // the plugin knows the provenance; the plugin's permission gate is
+                // the sole authority for any action it takes in response.
+                match wasm_bridge.web_plugin_target(&web_plugin_id, client_id) {
+                    Some(plugin_id) => {
+                        let is_private = true;
+                        let pipe_messages = vec![(
+                            Some(plugin_id),
+                            Some(client_id),
+                            PipeMessage::new(
+                                PipeSource::Web(client_id.to_string()),
+                                &name,
+                                &payload,
+                                &None,
+                                is_private,
+                            ),
+                        )];
+                        wasm_bridge.pipe_messages(pipe_messages, shutdown_send.clone(), None)?;
+                    },
+                    None => {
+                        log::warn!(
+                            "Rejected web pipe '{name}' from client {client_id}: \
+                             web_plugin_id does not resolve to a companion bound to \
+                             this connection"
+                        );
+                    },
+                }
+            },
+            PluginInstruction::EnableWebCompanions(client_id) => {
+                // A web client connected. Load each configured web companion plugin
+                // (config.web_client.extensions) for this client (headless — no pane),
+                // mint an unguessable web_plugin_id bound to (client_id, plugin_id), and
+                // inject it into the browser. The server decides what may run; the
+                // browser never names it. Web extensions are external (file:/remote),
+                // not `zellij:` built-ins baked into core.
+                log::info!(
+                    "[web-ext] EnableWebCompanions for client {client_id}: {} configured",
+                    web_extensions.len()
+                );
+                // Idempotent per client: EnableWebCompanions can fire more than once
+                // for the same connection (e.g. AddClient plus a reconnect), and each
+                // load_background_plugin instantiates the wasm afresh. Skip any
+                // companion this client already has so we don't re-load it.
+                let already_enabled: std::collections::HashSet<String> = wasm_bridge
+                    .web_plugins_for_client(client_id)
+                    .into_iter()
+                    .map(|(extension, _token, _frontend)| extension)
+                    .collect();
+                for run_plugin_or_alias in &web_extensions {
+                    let run_plugin_or_alias = run_plugin_or_alias.clone();
+                    // Name this companion by its plugin location (used as the frontend's
+                    // match key and echoed in WebPluginEnabled).
+                    let extension = run_plugin_or_alias
+                        .get_run_plugin()
+                        .map(|rp| rp.location.to_string())
+                        .unwrap_or_else(|| format!("{:?}", run_plugin_or_alias));
+                    if already_enabled.contains(&extension) {
+                        log::info!(
+                            "[web-ext] companion '{extension}' already enabled for client {client_id}, not re-loading"
+                        );
+                        continue;
+                    }
+                    // Permissions are not pre-granted: when the companion calls
+                    // request_permission() the request is routed to the browser (see
+                    // RoutePermissionRequest) and the user accepts it there, the same
+                    // way a paned plugin's permission dialog works.
+                    // Load as a *background* plugin (headless, no pane) so its event
+                    // subscriptions (e.g. TabUpdate) are registered with the screen — a raw
+                    // load_plugin would leave it invisible to event dispatch.
+                    match load_background_plugin(
+                        run_plugin_or_alias,
+                        &mut wasm_bridge,
+                        &bus,
+                        &plugin_aliases,
+                        client_id,
+                        true, // headless web companion: route permissions to the browser
+                    ) {
+                        Some((plugin_id, client_id)) => {
+                            let web_plugin_id = wasm_bridge.register_web_plugin(
+                                client_id,
+                                plugin_id,
+                                extension.clone(),
+                            );
+                            log::info!(
+                                "[web-ext] enabled companion '{extension}' plugin_id={plugin_id} client_id={client_id} web_plugin_id={web_plugin_id}"
+                            );
+                            let _ =
+                                bus.senders
+                                    .send_to_server(ServerInstruction::WebPluginEnabled(
+                                        client_id,
+                                        extension,
+                                        web_plugin_id,
+                                    ));
+                        },
+                        None => {
+                            log::error!(
+                                "Failed to load web companion '{extension}' for client {client_id}"
+                            );
+                        },
+                    }
+                }
+            },
+            PluginInstruction::RequestWebPlugins(client_id) => {
+                // Re-announce this client's already-registered companions now that
+                // its control channel is up (race-proofs the enable-time delivery,
+                // and re-serves each frontend after a reconnect).
+                for (extension, web_plugin_id, frontend) in
+                    wasm_bridge.web_plugins_for_client(client_id)
+                {
+                    log::info!(
+                        "[web-ext] re-announcing companion '{extension}' to client {client_id}: {web_plugin_id}"
+                    );
+                    let _ = bus
+                        .senders
+                        .send_to_server(ServerInstruction::WebPluginEnabled(
+                            client_id,
+                            extension,
+                            web_plugin_id.clone(),
+                        ));
+                    if let Some(frontend) = frontend {
+                        let _ = bus
+                            .senders
+                            .send_to_server(ServerInstruction::WebPluginFrontend(
+                                client_id,
+                                web_plugin_id,
+                                frontend,
+                            ));
+                    }
+                }
+            },
+            PluginInstruction::WebPluginMessageOut {
+                client_id,
+                plugin_id,
+                payload,
+            } => {
+                // A companion posted to its own frontend. Stamp with the web_plugin_id
+                // bound to (client_id, plugin_id) — derived server-side, never supplied
+                // by the plugin — and deliver only to that client's browser.
+                match wasm_bridge.web_plugin_id_for(client_id, plugin_id) {
+                    Some(web_plugin_id) => {
+                        let _ = bus
+                            .senders
+                            .send_to_server(ServerInstruction::WebPluginMessage(
+                                client_id,
+                                web_plugin_id,
+                                payload,
+                            ));
+                    },
+                    None => {
+                        log::warn!(
+                            "Plugin {plugin_id} (client {client_id}) posted a web message \
+                             but has no web_plugin_id binding; dropping"
+                        );
+                    },
+                }
+            },
+            PluginInstruction::WebSetFrontend {
+                client_id,
+                plugin_id,
+                frontend,
+            } => {
+                // Store the companion's frontend against its web_plugin_id and deliver
+                // it to the web server to serve at /assets/webext/<id>.js.
+                wasm_bridge.set_web_plugin_frontend(client_id, plugin_id, frontend.clone());
+                match wasm_bridge.web_plugin_id_for(client_id, plugin_id) {
+                    Some(web_plugin_id) => {
+                        let _ = bus
+                            .senders
+                            .send_to_server(ServerInstruction::WebPluginFrontend(
+                                client_id,
+                                web_plugin_id,
+                                frontend,
+                            ));
+                    },
+                    None => {
+                        log::warn!(
+                            "Plugin {plugin_id} (client {client_id}) set a web frontend but \
+                             has no web_plugin_id binding; dropping"
+                        );
+                    },
+                }
+            },
+            PluginInstruction::RoutePermissionRequest {
+                plugin_id,
+                client_id,
+                location,
+                permissions,
+            } => {
+                // A web companion has no pane for the usual permission dialog, so send
+                // its request to the browser (WebPluginPermissionRequest) and remember
+                // what it asked for; any other plugin gets the normal pane dialog.
+                if let Some(web_plugin_id) = wasm_bridge.web_plugin_id_for(client_id, plugin_id) {
+                    wasm_bridge.set_web_plugin_pending_permissions(
+                        client_id,
+                        plugin_id,
+                        permissions.clone(),
+                    );
+                    let names = permissions.iter().map(|p| format!("{p:?}")).collect();
+                    let _ =
+                        bus.senders
+                            .send_to_server(ServerInstruction::WebPluginPermissionRequest(
+                                client_id,
+                                web_plugin_id,
+                                names,
+                            ));
+                } else {
+                    let _ =
+                        bus.senders
+                            .send_to_screen(ScreenInstruction::RequestPluginPermissions(
+                                plugin_id,
+                                PluginPermission::new(location, permissions),
+                            ));
+                }
+            },
+            PluginInstruction::WebPluginPermissionResponse {
+                client_id,
+                web_plugin_id,
+                granted,
+            } => {
+                // The browser answered. Grant (or deny) exactly what the companion
+                // requested, via the normal path (which caches the grant, so we won't
+                // prompt again). The token is validated against this client, so a
+                // frontend can only ever answer for its own companion.
+                match wasm_bridge.take_web_plugin_pending_permissions(&web_plugin_id, client_id) {
+                    Some((plugin_id, permissions)) => {
+                        let status = if granted {
+                            PermissionStatus::Granted
+                        } else {
+                            PermissionStatus::Denied
+                        };
+                        let _ =
+                            bus.senders
+                                .send_to_plugin(PluginInstruction::PermissionRequestResult(
+                                    plugin_id,
+                                    Some(client_id),
+                                    permissions,
+                                    status,
+                                    None,
+                                ));
+                    },
+                    None => {
+                        log::warn!(
+                            "Web permission answer for unknown or foreign web_plugin_id \
+                             {web_plugin_id} from client {client_id}; ignoring"
+                        );
+                    },
+                }
             },
             PluginInstruction::KeybindPipe {
                 name,
@@ -1430,7 +1760,8 @@ fn load_background_plugin(
     bus: &Bus<PluginInstruction>,
     plugin_aliases: &PluginAliases,
     client_id: ClientId,
-) {
+    is_web_companion: bool,
+) -> Option<(PluginId, ClientId)> {
     run_plugin_or_alias.populate_run_plugin_if_needed(&plugin_aliases);
     let cwd = run_plugin_or_alias.get_initial_cwd();
     let run_plugin = run_plugin_or_alias.get_run_plugin();
@@ -1443,6 +1774,7 @@ fn load_background_plugin(
         cwd.clone(),
         skip_cache,
         Some(client_id),
+        is_web_companion,
     ) {
         Ok((plugin_id, client_id)) => {
             let should_float = None;
@@ -1466,9 +1798,11 @@ fn load_background_plugin(
                 Some(client_id),
                 None,
             )));
+            Some((plugin_id, client_id))
         },
         Err(e) => {
             log::error!("Failed to load plugin: {e}");
+            None
         },
     }
 }

@@ -548,6 +548,13 @@ pub enum PluginContext {
     DumpLayout,
     LogLayoutToHd,
     CliPipe,
+    WebPipe,
+    EnableWebCompanions,
+    RequestWebPlugins,
+    WebPluginMessageOut,
+    WebSetFrontend,
+    RoutePermissionRequest,
+    WebPluginPermissionResponse,
     Message,
     CachePluginEvents,
     MessageFromPlugin,
@@ -634,6 +641,10 @@ pub enum ServerContext {
     ForwardQueryToHost,
     KeyPassthroughChanged,
     EmitNestedSessionFrameToClient,
+    WebPluginEnabled,
+    WebPluginMessage,
+    WebPluginFrontend,
+    WebPluginPermissionRequest,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]

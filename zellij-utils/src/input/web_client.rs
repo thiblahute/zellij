@@ -7,6 +7,8 @@ use crate::{
 };
 
 use super::config::ConfigError;
+use super::layout::RunPluginOrAlias;
+use crate::kdl::kdl_layout_parser::KdlLayoutParser;
 
 #[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
 pub struct WebClientTheme {
@@ -240,6 +242,10 @@ pub struct WebClientConfig {
     pub mac_option_is_meta: bool,
     pub base_url: Option<String>,
     pub font_size: Option<u16>,
+    // Web extensions to enable for each web client: headless companion plugins
+    // whose frontend is HTML in the browser. Loaded per web-client connection.
+    #[serde(default)]
+    pub extensions: Vec<RunPluginOrAlias>,
 }
 
 impl Default for WebClientConfig {
@@ -253,6 +259,7 @@ impl Default for WebClientConfig {
             mac_option_is_meta: true, // TODO: yes? no?
             base_url: None,
             font_size: None,
+            extensions: Vec::new(),
         }
     }
 }
@@ -305,6 +312,50 @@ impl WebClientConfig {
                         font_size_node.span().offset(),
                         font_size_node.span().len(),
                     ));
+                }
+            }
+        }
+
+        // web extensions, each with its own configuration in the same declaration:
+        //   extensions { plugin location="file:..." { setting "value" } ... }
+        if let Some(extensions_node) = kdl_get_child!(kdl, "extensions") {
+            if let Some(children) = extensions_node.children() {
+                for plugin_node in children.nodes() {
+                    if plugin_node.name().value() != "plugin" {
+                        return Err(ConfigError::new_kdl_error(
+                            "web_client extensions may only contain `plugin` nodes".to_string(),
+                            plugin_node.span().offset(),
+                            plugin_node.span().len(),
+                        ));
+                    }
+                    let location = plugin_node
+                        .get("location")
+                        .and_then(|e| e.value().as_string())
+                        .ok_or_else(|| {
+                            ConfigError::new_kdl_error(
+                                "web_client extension `plugin` requires a `location`".to_string(),
+                                plugin_node.span().offset(),
+                                plugin_node.span().len(),
+                            )
+                        })?;
+                    // The extension's own configuration (everything on the `plugin`
+                    // node except reserved properties like `location`) travels with it.
+                    let configuration =
+                        KdlLayoutParser::parse_plugin_user_configuration(plugin_node)?;
+                    let run_plugin = RunPluginOrAlias::from_url(
+                        location,
+                        &Some(configuration.inner().clone()),
+                        None,
+                        None,
+                    )
+                    .map_err(|e| {
+                        ConfigError::new_kdl_error(
+                            format!("Failed to parse web_client extension: {}", e),
+                            plugin_node.span().offset(),
+                            plugin_node.span().len(),
+                        )
+                    })?;
+                    web_client_config.extensions.push(run_plugin);
                 }
             }
         }
@@ -378,6 +429,9 @@ impl WebClientConfig {
         merged.mac_option_is_meta = other.mac_option_is_meta;
         merged.base_url = other.base_url;
         merged.font_size = other.font_size;
+        if !other.extensions.is_empty() {
+            merged.extensions = other.extensions;
+        }
         merged
     }
 }

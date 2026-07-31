@@ -179,6 +179,24 @@ pub enum ClientToServerMsg {
     NestedSessionFrameFromHost {
         payload_bytes: Vec<u8>,
     },
+    /// A web-client frontend piping a message to its companion plugin
+    /// (PipeSource::Web). `web_plugin_id` is the token the server injected when
+    /// the companion was enabled; the server validates it against the
+    /// authenticated connection before routing, and tags the provenance
+    /// (client id) server-side.
+    WebPipeToPlugin {
+        web_plugin_id: String,
+        name: String,
+        payload: Option<String>,
+    },
+    /// A web client asks which companion plugins it has (sent when its control
+    /// channel comes up). The server re-announces them via WebPluginEnabled.
+    RequestWebPlugins,
+    /// The user answered a web companion's permission prompt in the browser.
+    WebPluginPermissionResponse {
+        web_plugin_id: String,
+        granted: bool,
+    },
 }
 
 // Types of messages sent from the server to the client
@@ -232,6 +250,30 @@ pub enum ServerToClientMsg {
     },
     EmitNestedSessionFrame {
         payload_bytes: Vec<u8>,
+    },
+    /// A web companion plugin was enabled for this (web) client. Carries the
+    /// server-minted `web_plugin_id` token; the web server forwards it to the
+    /// browser as WebServerToWebClientControlMessage::WebPluginEnabled.
+    WebPluginEnabled {
+        extension: String,
+        web_plugin_id: String,
+    },
+    /// A web companion plugin posted a message to its frontend. Stamped with the
+    /// `web_plugin_id` so the browser routes it to the right companion frontend.
+    WebPluginMessage {
+        web_plugin_id: String,
+        payload: String,
+    },
+    /// A web companion's browser frontend (JS module). The web server caches it and
+    /// serves it at /assets/webext/<web_plugin_id>.js for the browser to import.
+    WebPluginFrontend {
+        web_plugin_id: String,
+        frontend: String,
+    },
+    /// A web companion is requesting permissions; the browser should prompt the user.
+    WebPluginPermissionRequest {
+        web_plugin_id: String,
+        permissions: Vec<String>,
     },
 }
 

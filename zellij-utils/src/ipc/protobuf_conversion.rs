@@ -13,11 +13,14 @@ use crate::{
         InputMode as ProtoInputMode, KeyMsg, KillSessionMsg, LayoutMetadata as ProtoLayoutMetadata,
         LogErrorMsg, LogMsg, NestedSessionFrameFromHostMsg, PaneMetadata as ProtoPaneMetadata,
         PaneRenderUpdateMsg, QueryTerminalSizeMsg, RenamedSessionMsg, RenderMsg,
-        ResizeCause as ProtoResizeCause, ServerToClientMsg as ProtoServerToClientMsg,
-        SetSoftKeyboardMsg, SoftKeyboardVisibilityChangedMsg, StartWebServerMsg,
-        SubscribeToPaneRendersMsg, SubscribedPaneClosedMsg, SwitchSessionMsg,
-        TabMetadata as ProtoTabMetadata, TerminalPixelDimensionsMsg, TerminalResizeMsg,
-        UnblockCliPipeInputMsg, UnblockInputThreadMsg, WebServerStartedMsg,
+        RequestWebPluginsMsg, ResizeCause as ProtoResizeCause,
+        ServerToClientMsg as ProtoServerToClientMsg, SetSoftKeyboardMsg,
+        SoftKeyboardVisibilityChangedMsg, StartWebServerMsg, SubscribeToPaneRendersMsg,
+        SubscribedPaneClosedMsg, SwitchSessionMsg, TabMetadata as ProtoTabMetadata,
+        TerminalPixelDimensionsMsg, TerminalResizeMsg, UnblockCliPipeInputMsg,
+        UnblockInputThreadMsg, WebPipeToPluginMsg, WebPluginEnabledMsg, WebPluginFrontendMsg,
+        WebPluginMessageMsg, WebPluginPermissionRequestMsg, WebPluginPermissionResponseMsg,
+        WebServerStartedMsg,
     },
     data::{HostTerminalThemeMode, InputMode, PaneId},
     errors::prelude::*,
@@ -161,6 +164,27 @@ impl From<ClientToServerMsg> for ProtoClientToServerMsg {
                     NestedSessionFrameFromHostMsg { payload_bytes },
                 )
             },
+            ClientToServerMsg::WebPipeToPlugin {
+                web_plugin_id,
+                name,
+                payload,
+            } => client_to_server_msg::Message::WebPipeToPlugin(WebPipeToPluginMsg {
+                web_plugin_id,
+                name,
+                payload,
+            }),
+            ClientToServerMsg::RequestWebPlugins => {
+                client_to_server_msg::Message::RequestWebPlugins(RequestWebPluginsMsg {})
+            },
+            ClientToServerMsg::WebPluginPermissionResponse {
+                web_plugin_id,
+                granted,
+            } => client_to_server_msg::Message::WebPluginPermissionResponse(
+                WebPluginPermissionResponseMsg {
+                    web_plugin_id,
+                    granted,
+                },
+            ),
         };
 
         ProtoClientToServerMsg {
@@ -316,6 +340,22 @@ impl TryFrom<ProtoClientToServerMsg> for ClientToServerMsg {
                     payload_bytes: msg.payload_bytes,
                 })
             },
+            Some(client_to_server_msg::Message::WebPipeToPlugin(msg)) => {
+                Ok(ClientToServerMsg::WebPipeToPlugin {
+                    web_plugin_id: msg.web_plugin_id,
+                    name: msg.name,
+                    payload: msg.payload,
+                })
+            },
+            Some(client_to_server_msg::Message::RequestWebPlugins(_)) => {
+                Ok(ClientToServerMsg::RequestWebPlugins)
+            },
+            Some(client_to_server_msg::Message::WebPluginPermissionResponse(msg)) => {
+                Ok(ClientToServerMsg::WebPluginPermissionResponse {
+                    web_plugin_id: msg.web_plugin_id,
+                    granted: msg.granted,
+                })
+            },
             None => Err(anyhow!("Empty ClientToServerMsg message")),
         }
     }
@@ -409,6 +449,36 @@ impl From<ServerToClientMsg> for ProtoServerToClientMsg {
                     payload_bytes,
                 })
             },
+            ServerToClientMsg::WebPluginEnabled {
+                extension,
+                web_plugin_id,
+            } => server_to_client_msg::Message::WebPluginEnabled(WebPluginEnabledMsg {
+                extension,
+                web_plugin_id,
+            }),
+            ServerToClientMsg::WebPluginMessage {
+                web_plugin_id,
+                payload,
+            } => server_to_client_msg::Message::WebPluginMessage(WebPluginMessageMsg {
+                web_plugin_id,
+                payload,
+            }),
+            ServerToClientMsg::WebPluginFrontend {
+                web_plugin_id,
+                frontend,
+            } => server_to_client_msg::Message::WebPluginFrontend(WebPluginFrontendMsg {
+                web_plugin_id,
+                frontend,
+            }),
+            ServerToClientMsg::WebPluginPermissionRequest {
+                web_plugin_id,
+                permissions,
+            } => server_to_client_msg::Message::WebPluginPermissionRequest(
+                WebPluginPermissionRequestMsg {
+                    web_plugin_id,
+                    permissions,
+                },
+            ),
         };
 
         ProtoServerToClientMsg {
@@ -527,6 +597,30 @@ impl TryFrom<ProtoServerToClientMsg> for ServerToClientMsg {
             Some(server_to_client_msg::Message::EmitNestedSessionFrame(msg)) => {
                 Ok(ServerToClientMsg::EmitNestedSessionFrame {
                     payload_bytes: msg.payload_bytes,
+                })
+            },
+            Some(server_to_client_msg::Message::WebPluginEnabled(msg)) => {
+                Ok(ServerToClientMsg::WebPluginEnabled {
+                    extension: msg.extension,
+                    web_plugin_id: msg.web_plugin_id,
+                })
+            },
+            Some(server_to_client_msg::Message::WebPluginMessage(msg)) => {
+                Ok(ServerToClientMsg::WebPluginMessage {
+                    web_plugin_id: msg.web_plugin_id,
+                    payload: msg.payload,
+                })
+            },
+            Some(server_to_client_msg::Message::WebPluginFrontend(msg)) => {
+                Ok(ServerToClientMsg::WebPluginFrontend {
+                    web_plugin_id: msg.web_plugin_id,
+                    frontend: msg.frontend,
+                })
+            },
+            Some(server_to_client_msg::Message::WebPluginPermissionRequest(msg)) => {
+                Ok(ServerToClientMsg::WebPluginPermissionRequest {
+                    web_plugin_id: msg.web_plugin_id,
+                    permissions: msg.permissions,
                 })
             },
             None => Err(anyhow!("Empty ServerToClientMsg message")),

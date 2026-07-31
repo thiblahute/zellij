@@ -125,14 +125,14 @@ pub use super::generated_api::api::{
         SetPaneFrameStylePayload as ProtobufSetPaneFrameStylePayload,
         SetPaneRegexHighlightsPayload, SetSelfMouseSelectionSupportPayload,
         SetSoftKeyboardPayload as ProtobufSetSoftKeyboardPayload,
-        SetTabFitPayload as ProtobufSetTabFitPayload, SetTimeoutPayload, ShowCursorPayload,
-        ShowFloatingPanesPayload as ProtobufShowFloatingPanesPayload,
+        SetTabFitPayload as ProtobufSetTabFitPayload, SetTimeoutPayload, SetWebFrontendPayload,
+        ShowCursorPayload, ShowFloatingPanesPayload as ProtobufShowFloatingPanesPayload,
         ShowFloatingPanesResponse as ProtobufShowFloatingPanesResponse, ShowPaneWithIdPayload,
         Size as ProtobufSize, StackPanesPayload, SubscribePayload, SwitchSessionPayload,
         SwitchTabToIdPayload, SwitchTabToPayload, ToggleFloatingPanesPayload,
         TogglePaneBorderlessPayload, TogglePaneEmbedOrEjectForPaneIdPayload,
-        TogglePaneIdFullscreenPayload, UnsubscribePayload, WebRequestPayload,
-        WriteCharsToPaneIdPayload, WriteToPaneIdPayload,
+        TogglePaneIdFullscreenPayload, UnsubscribePayload, WebPostMessagePayload,
+        WebRequestPayload, WriteCharsToPaneIdPayload, WriteToPaneIdPayload,
     },
     plugin_permission::PermissionType as ProtobufPermissionType,
     resize::ResizeAction as ProtobufResizeAction,
@@ -1445,6 +1445,18 @@ impl TryFrom<ProtobufPluginCommand> for PluginCommand {
                     Ok(PluginCommand::CliPipeOutput(pipe_name, output))
                 },
                 _ => Err("Mismatched payload for PipeOutput"),
+            },
+            Some(CommandName::WebPostMessage) => match protobuf_plugin_command.payload {
+                Some(Payload::WebPostMessagePayload(WebPostMessagePayload { payload })) => {
+                    Ok(PluginCommand::WebPostMessage(payload))
+                },
+                _ => Err("Mismatched payload for WebPostMessage"),
+            },
+            Some(CommandName::SetWebFrontend) => match protobuf_plugin_command.payload {
+                Some(Payload::SetWebFrontendPayload(SetWebFrontendPayload { frontend })) => {
+                    Ok(PluginCommand::SetWebFrontend(frontend))
+                },
+                _ => Err("Mismatched payload for SetWebFrontend"),
             },
             Some(CommandName::MessageToPlugin) => match protobuf_plugin_command.payload {
                 Some(Payload::MessageToPluginPayload(MessageToPluginPayload {
@@ -3393,6 +3405,18 @@ impl TryFrom<PluginCommand> for ProtobufPluginCommand {
                 payload: Some(Payload::CliPipeOutputPayload(CliPipeOutputPayload {
                     pipe_name,
                     output,
+                })),
+            }),
+            PluginCommand::WebPostMessage(payload) => Ok(ProtobufPluginCommand {
+                name: CommandName::WebPostMessage as i32,
+                payload: Some(Payload::WebPostMessagePayload(WebPostMessagePayload {
+                    payload,
+                })),
+            }),
+            PluginCommand::SetWebFrontend(frontend) => Ok(ProtobufPluginCommand {
+                name: CommandName::SetWebFrontend as i32,
+                payload: Some(Payload::SetWebFrontendPayload(SetWebFrontendPayload {
+                    frontend,
                 })),
             }),
             PluginCommand::MessageToPlugin(message_to_plugin) => {
