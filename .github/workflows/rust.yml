@@ -144,6 +144,63 @@ jobs:
       - name: Run whole-app integration tests
         run: cargo xtask integration-test
 
+  web-e2e-test:
+    name: Web Extension E2E Test
+    runs-on: ubuntu-latest
+
+    env:
+      # Cache the playwright-rs build-time driver on a stable path: rust-cache
+      # prunes build-script output in OUT_DIR, so it would re-download every run.
+      # build.rs reads this env var (must be an absolute path; no ~ expansion).
+      PLAYWRIGHT_DRIVER_CACHE_DIR: ${{ github.workspace }}/.cache/playwright-driver
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          target: wasm32-wasip1
+          rustflags: ""
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Cache Playwright driver
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.cache/playwright-driver
+          key: playwright-driver-1.61.1-${{ runner.os }}
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-browser-1.61.1-${{ runner.os }}
+
+      - name: Build zellij with web server capability
+        run: cargo build --bin zellij --no-default-features --features vendored_curl,web_server_capability
+
+      - name: Build web extension companion plugins
+        run: |
+          cargo build -p web-tab-bar --target wasm32-wasip1
+          cargo build -p web-extra-keys --target wasm32-wasip1
+
+      - name: Install Playwright Chromium
+        # Matches the driver version pinned by playwright-rs. --with-deps pulls
+        # the system libraries the headless browser needs (apt, Debian runner).
+        run: npx --yes playwright@1.61.1 install --with-deps chromium
+
+      - name: Run web extension e2e tests
+        run: cargo test -p zellij-integration-tests --features web_e2e --test web_tab_bar --test web_extra_keys -- --nocapture
+
   test-no-web:
     name: Test (No Web)
     runs-on: ubuntu-latest
