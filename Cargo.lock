@@ -4356,6 +4356,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "web-tab-bar"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "zellij-tile",
+]
+
+[[package]]
 name = "wepoll-ffi"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"

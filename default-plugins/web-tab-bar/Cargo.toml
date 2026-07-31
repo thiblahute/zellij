@@ -1,0 +1,11 @@
+[package]
+name = "web-tab-bar"
+version = "0.1.0"
+authors = ["Thibault Saunier <tsaunier@igalia.com>"]
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+zellij-tile = { path = "../../zellij-tile" }
+serde = { workspace = true }
+serde_json = { workspace = true }

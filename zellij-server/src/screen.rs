@@ -11455,9 +11455,16 @@ pub(crate) fn screen_thread_main(
                         .background_plugin_subscriptions
                         .remove(&(plugin_id, client_id));
                 } else {
+                    let wants_tab_update = subscriptions.contains(&EventType::TabUpdate);
                     screen
                         .background_plugin_subscriptions
                         .insert((plugin_id, client_id), subscriptions);
+                    // A background plugin that just subscribed (e.g. a web tab-bar
+                    // companion) missed any earlier TabUpdate, so hand it the current
+                    // tab state now instead of making it wait for the next change.
+                    if wants_tab_update {
+                        let _ = screen.generate_and_report_tab_state();
+                    }
                 }
             },
             ScreenInstruction::ClearHintTextCache => {
