@@ -9,6 +9,8 @@ pub mod keys;
 pub mod nested;
 pub mod runner;
 pub mod test_env;
+#[cfg(feature = "web_e2e")]
+pub mod web_e2e;
 
 pub use client_screen::{
     col, CellStyle, ClientScreen, Coord, CoordBuilder, CursorPosition, GridSnapshot,

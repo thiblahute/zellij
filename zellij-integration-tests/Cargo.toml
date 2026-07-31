@@ -8,6 +8,13 @@ edition.workspace = true
 version.workspace = true
 rust-version.workspace = true
 
+[features]
+# Browser end-to-end tests for the web client and its web extensions (see
+# src/web_e2e). Opt-in: enabling it pulls in playwright-rs, whose build script
+# downloads a ~90 MB Playwright driver. Off by default so a normal
+# build/`cargo test` for this crate never compiles it or touches the network.
+web_e2e = ["dep:playwright-rs", "dep:libc", "dep:tempfile"]
+
 [dependencies]
 zellij-client = { path = "../zellij-client", version = "0.45.0" }
 zellij-server = { path = "../zellij-server", version = "0.45.0" }
@@ -21,3 +28,7 @@ log = { workspace = true }
 regex = { workspace = true }
 tokio = { workspace = true }
 vte = { workspace = true }
+# web_e2e feature only
+playwright-rs = { version = "0.15", optional = true }
+libc = { version = "0.2", optional = true }
+tempfile = { workspace = true, optional = true }
