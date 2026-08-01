@@ -16,8 +16,18 @@ pub fn build_initial_connection(
     config: &Config,
 ) -> Result<Option<ConnectToSession>, &'static str> {
     let should_start_with_welcome_screen = session_name.is_none();
-    let default_layout_from_config =
+    let mut default_layout_from_config =
         LayoutInfo::from_config(&config.options.layout_dir, &config.options.default_layout);
+    // When web extensions provide the HTML chrome (e.g. a tab-bar extension in
+    // web_client.extensions), default to the bare "web" layout so the native
+    // tab-bar plugin isn't rendered into the grid on top of it. Only when the
+    // user hasn't explicitly picked a layout via `default_layout`.
+    let user_default_layout = config.options.default_layout.as_deref();
+    let layout_is_unset = user_default_layout.is_none()
+        || user_default_layout.and_then(|p| p.to_str()) == Some("default");
+    if !config.web_client.extensions.is_empty() && layout_is_unset {
+        default_layout_from_config = Some(LayoutInfo::BuiltIn("web".to_owned()));
+    }
     if should_start_with_welcome_screen {
         let Some(initial_session_name) = session_name.clone().or_else(generate_unique_session_name)
         else {

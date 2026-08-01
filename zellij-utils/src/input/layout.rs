@@ -1649,6 +1649,11 @@ impl Layout {
                 Self::stringified_welcome_from_assets()?,
                 None,
             )),
+            Some("web") => Ok((
+                "Web layout".into(),
+                Self::stringified_web_from_assets()?,
+                None,
+            )),
             None | Some(_) => Err(ConfigError::IoPath(
                 std::io::Error::new(std::io::ErrorKind::Other, "The layout was not found"),
                 path.into(),
@@ -1670,6 +1675,10 @@ impl Layout {
 
     pub fn stringified_disable_status_from_assets() -> Result<String, ConfigError> {
         Ok(String::from_utf8(setup::NO_STATUS_LAYOUT.to_vec())?)
+    }
+
+    pub fn stringified_web_from_assets() -> Result<String, ConfigError> {
+        Ok(String::from_utf8(setup::WEB_LAYOUT.to_vec())?)
     }
 
     pub fn stringified_compact_from_assets() -> Result<String, ConfigError> {

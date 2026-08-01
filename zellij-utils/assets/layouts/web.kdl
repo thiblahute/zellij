@@ -1,0 +1,10 @@
+// The default layout for web sessions that declare web-extension chrome
+// (web_client.extensions). The native tab-bar plugin is omitted because a web
+// tab-bar extension renders it as HTML in the browser instead; the status bar
+// is kept.
+layout {
+    pane
+    pane size=1 borderless=true {
+        plugin location="status-bar"
+    }
+}
